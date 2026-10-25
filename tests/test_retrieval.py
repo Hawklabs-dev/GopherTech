@@ -46,3 +46,44 @@ class RetrievalTests(unittest.TestCase):
 
     def test_model_unavailable_keeps_reference_extract(self):
         self.assertIsNone(local_ai.select('test',[]))
+
+    def test_aliases_and_new_machine_clear_old_observations(self):
+        old=dict(brand='Honda',model='GX160',serial='GCACK-1000002',fuel='petrol',fuel_observation='fresh fuel',symptom='no start',year='2007')
+        new=jobs.route_question(old, 'My other mower is a JD D120 and runs rough')
+        self.assertEqual(new['brand'],'John Deere')
+        self.assertEqual(new['model'],'D120')
+        self.assertNotIn('serial',new)
+        self.assertNotIn('fuel_observation',new)
+        self.assertNotIn('year',new)
+        self.assertEqual(new['intent'],'troubleshoot')
+
+    def test_model_followup_and_style_keep_current_identity(self):
+        first=jobs.route_question({}, 'JD mower wont start')
+        follow=jobs.route_question(first, 'model is D120')
+        self.assertEqual(follow['model'],'D120')
+        self.assertEqual(follow['intent'],'troubleshoot')
+        guided=jobs.route_question(follow, 'Walk me through it')
+        self.assertEqual(guided['response_style'],'guided')
+        self.assertEqual(guided['model'],'D120')
+
+    def test_conflicting_pdf_matches_are_not_selected(self):
+        index=dict(url='https://engines.honda.com/example',text='listing',links=[dict(url='https://cdn.powerequipment.honda.com/'+name+'.pdf',applicability='GCACK 1000001 1125014') for name in ('one','two')])
+        with patch.dict(os.environ,GOPHERTECH_RESEARCH_NETWORK='1'), patch('research.document',return_value=index) as fetch:
+            docs,answer=retrieval.answer(dict(model='GX160',serial='GCACK-1000002'),'oil drain',[dict(kind='Model lookup',url=index['url'])])
+        self.assertEqual(fetch.call_count,1)
+        self.assertIn('More than one manual',answer)
+
+    def test_unmatched_full_serial_does_not_repeat_missing_serial_question(self):
+        index=dict(url='https://engines.honda.com/example',text='listing',links=[])
+        with patch.dict(os.environ,GOPHERTECH_RESEARCH_NETWORK='1'), patch('research.document',return_value=index):
+            _,answer=retrieval.answer(dict(model='GX160',serial='GCACK-9999999'),'manual',[dict(kind='Model lookup',url=index['url'])])
+        self.assertIn('could not match',answer)
+        self.assertNotIn('What is the complete serial',answer)
+
+    def test_natural_serial_followups_and_corrections(self):
+        first=jobs.route_question({},'Find manual Honda GX160 GCACK')
+        full=jobs.route_question(first,'1000002')
+        self.assertEqual(full['serial'],'GCACK-1000002')
+        corrected=jobs.route_question(full,'Actually GCACK1000003')
+        self.assertEqual(corrected['serial'],'GCACK1000003')
+        self.assertEqual(corrected['task_question'],first['task_question'])

@@ -193,7 +193,7 @@ func _ready() -> void:
 	job_workspace.saved_view.visible = true
 	job_workspace.job_loaded.connect(on_job_loaded)
 	job_workspace.ask_button.add_theme_stylebox_override("normal", style(Color("593d1e"), AMBER))
-	job_workspace.answer_ready.connect(func(): page_scroll.set_deferred("scroll_vertical", int(page_scroll.get_v_scroll_bar().max_value)))
+	job_workspace.answer_ready.connect(scroll_to_answer)
 	job_workspace.save_notice.connect(func(value: String): parts_message.text = value)
 	reference_desk.question_notes.text_changed.connect(func():
 		if not syncing_job: job_workspace.notes.text = reference_desk.question_notes.text
@@ -463,3 +463,18 @@ func calculate_mix() -> void:
 		mix_result.text = "That number is too large to calculate."
 		return
 	mix_result.text = "Add %.2f mL of specified oil to %s L of fuel for %s:1." % [oil, fuel, ratio]
+
+
+func scroll_to_answer() -> void:
+	# Wait for wrapping/container layout, then land at the start of the new answer.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if active_page != "home": return
+	var transcript: RichTextLabel = job_workspace.conversation
+	var paragraph: int = mini(job_workspace.latest_answer_paragraph, transcript.get_paragraph_count() - 1)
+	var offset: float = transcript.get_paragraph_offset(maxi(0, paragraph))
+	var target: float = page_scroll.scroll_vertical + transcript.global_position.y - page_scroll.global_position.y + offset - 12.0
+	var bar := page_scroll.get_v_scroll_bar()
+	target = clampf(target, 0.0, maxf(0.0, bar.max_value - bar.page))
+	var motion := create_tween()
+	motion.tween_property(page_scroll, "scroll_vertical", int(target), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)

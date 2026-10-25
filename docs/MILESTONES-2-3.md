@@ -35,3 +35,29 @@ Tests use disposable databases, original document fixtures, network disabled and
 local AI disabled unless explicitly mocked. Live validation separately checks
 public Honda retrieval and the installed local model. No production records are
 used for test questions.
+
+## Workshop refinement pass
+
+- Answers scroll smoothly to the beginning of the latest reply. Manual passages,
+  source URLs and applicability cautions remain visible without opening details.
+- Ctrl+Enter sends; Enter still starts a new line. The Ask button shows a busy
+  label. A newer draft typed during a request is preserved when the reply arrives.
+- Common aliases (JD, John Deer, B&S), `model is D120`, natural Honda serial
+  follow-ups and corrected serial numbers are recognized. Explicitly mentioning
+  another mower clears carried identity and observations from routing context.
+- Manufacturer lookup limitations supplement troubleshooting guidance. Ambiguous
+  serial matches are flagged rather than choosing the first PDF. Known full
+  serial numbers that fail to match are acknowledged rather than requested again.
+- Cached PDF answers include page references. Quick-answer requests limit extracts
+  to one passage; guided troubleshooting adds a short identification/check sequence.
+
+Retest with a separate saved conversation for each mower: describe its symptom
+without a model, answer the identity follow-up, then close/reopen and check that
+its notes and parts belong to that mower. Try a question with a known manual and
+an unavailable document. Source coverage remains limited to the supported libraries;
+this pass does not add a paid service or claim broad manufacturer coverage.
+
+Validation: 71 isolated Python tests; Godot interface acceptance (desktop and
+360/390px widths), including visible citations and preservation of a new draft;
+Godot question/manual/notes/parts workflow and restart/reopen. Desktop and phone
+screens were rendered and visually inspected with original fixture text.

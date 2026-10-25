@@ -1,5 +1,5 @@
 extends VBoxContainer
-## Persistent reference-mode conversations. No model, credential or paid API calls.
+## Persistent conversations with source research and optional local passage selection.
 
 signal job_loaded(job: Dictionary)
 signal save_notice(value: String)
@@ -39,6 +39,8 @@ var create_key := ""
 var applying := false
 var expanded_details: Dictionary = {}
 var sources_expanded := false
+var submitted_question := ""
+var latest_answer_paragraph := 0
 
 func label(parent: Node, value: String, size: int = 15) -> Label:
 	var node := Label.new()
@@ -70,7 +72,12 @@ func _ready() -> void:
 	var configured := OS.get_environment("GOPHERTECH_API_URL").strip_edges().trim_suffix("/")
 	if not configured.is_empty(): api_url = configured
 	question = TextEdit.new()
-	question.placeholder_text = "Ask about a problem, part, manual or repair…"
+	question.placeholder_text = "Tell me what’s happening. Make/model helps, if you know it…"
+	question.gui_input.connect(func(event: InputEvent):
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ENTER and (event.ctrl_pressed or event.meta_pressed):
+			question.accept_event()
+			ask()
+	)
 	question.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	question.custom_minimum_size.y = 110
 	add_child(question)
@@ -166,6 +173,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 	operation = kind
 	busy = true
 	ask_button.disabled = true
+	if kind == "question": ask_button.text = "Finding useful information…"
 	var error := request_node.request(api_url + path, ["Content-Type: application/json"], method, "" if method == HTTPClient.METHOD_GET else JSON.stringify(body))
 	if error != OK:
 		if kind == "state":
@@ -173,6 +181,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 			pending_state = in_flight_state.duplicate(true)
 		busy = false
 		ask_button.disabled = false
+		ask_button.text = "Ask GopherTech"
 		set_status("Backend unavailable. Your question is kept; it has not been saved. Start run_backend.sh and retry.")
 
 func ask() -> void:
@@ -190,6 +199,7 @@ func ask() -> void:
 		request_fingerprint = fingerprint
 	var body := {"question":value,"request_key":request_key}
 	if job.has("id"): body["job_id"] = job["id"]
+	submitted_question = value
 	set_status("Reading saved and manufacturer references…")
 	send("question", "/jobs/question", body)
 
@@ -219,7 +229,11 @@ func new_job() -> void:
 	conversation.text = "Ask a question to start a saved conversation."
 	document_panel.visible = false
 	job_loaded.emit(job)
-	set_status("New job • Reference mode (not AI).")
+	expanded_details.clear()
+	sources_expanded = false
+	request_key = ""
+	question.grab_focus()
+	set_status("New conversation · Start with what you know.")
 
 func save_state(changes: Dictionary) -> void:
 	pending_state.merge(changes, true)
@@ -283,7 +297,7 @@ func brief_answer(value: String) -> String:
 	if paragraphs.is_empty(): return value
 	var selected := PackedStringArray([paragraphs[0]])
 	for paragraph in paragraphs.slice(1):
-		if paragraph.begins_with("Next ") or paragraph.begins_with("No matching ") or "Do not " in paragraph or "do not " in paragraph or paragraph.begins_with("Keep ignition") or "not verified engineering" in paragraph or paragraph.ends_with("?"):
+		if paragraph.begins_with("Next ") or paragraph.begins_with("No matching ") or "Do not " in paragraph or "do not " in paragraph or paragraph.begins_with("Keep ignition") or "not verified engineering" in paragraph or paragraph.begins_with("Page ") or paragraph.begins_with("Source:") or "applicability" in paragraph.to_lower() or paragraph.ends_with("?"):
 			selected.append(paragraph)
 	return "\n\n".join(selected)
 
@@ -292,10 +306,11 @@ func render_conversation() -> void:
 	for entry in job.get("messages", []):
 		var id := str(entry["id"])
 		var content: String = entry["content"]
+		if entry["role"] == "assistant": latest_answer_paragraph = transcript.count("\n")
 		if entry["role"] == "assistant" and not expanded_details.get(id, false):
 			content = brief_answer(content)
 		transcript += "[color=#ffb347][b]%s[/b][/color]\n%s\n" % ["You" if entry["role"] == "user" else "GopherTech", escape(content)]
-		if entry["role"] == "assistant":
+		if entry["role"] == "assistant" and brief_answer(entry["content"]) != entry["content"]:
 			transcript += "[url=detail:%s][color=#a6b3c4]%s[/color][/url]\n" % [id, "Less detail" if expanded_details.get(id, false) else "Technical details"]
 		transcript += "\n"
 	if transcript.is_empty(): transcript = "Ask your question above to continue.\n\n"
@@ -343,6 +358,7 @@ func show_document(value: Dictionary) -> void:
 func on_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	busy = false
 	ask_button.disabled = false
+	ask_button.text = "Ask GopherTech"
 	var parser := JSON.new()
 	var data: Variant = null
 	if parser.parse(body.get_string_from_utf8()) == OK: data = parser.data
@@ -366,7 +382,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		jobs = data.get("jobs", [])
 		job_list.clear()
 		for entry in jobs: job_list.add_item(entry["title"] + "  •  " + entry["updated_at"].substr(0, 10))
-		set_status("Reference mode (not AI). Jobs save to this computer.")
+		set_status("Conversations save to this computer. Research uses available sources.")
 		if operation == "startup" and not jobs.is_empty():
 			open_job(jobs[0]["id"])
 			return
@@ -389,7 +405,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		apply_job(data)
 		set_status("Saved · " + str(job.get("title", "Workshop job")) + " · Source research.")
 		if operation == "question":
-			question.text = ""
+			if question.text.strip_edges() == submitted_question: question.text = ""
 			request_key = ""
 			document_panel.visible = false
 			answer_ready.emit()

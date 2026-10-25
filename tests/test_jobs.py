@@ -144,3 +144,34 @@ class JobTests(unittest.IsolatedAsyncioTestCase):
         result = jobs.focus_document(doc, dict(serial='GCACK-1126000'))
         self.assertEqual(len(result['links']), 2)
         self.assertTrue(result['links'][0]['url'].endswith('engine.pdf'))
+
+class FieldConversationTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = JobTests.asyncSetUp
+    request = JobTests.request
+    ask = JobTests.ask
+    async def test_three_mower_jobs_remain_separate_after_restart(self):
+        descriptions=['JD D120 wont start', 'Honda GX160 runs rough', 'Kubota diesel not starting']
+        saved=[]
+        for index,question in enumerate(descriptions):
+            job=await self.ask(question)
+            status,_=await self.request('PUT','/jobs/'+job['id']+'/state',dict(notes='Mower '+str(index+1)+' observation',parts=['Item '+str(index+1)]))
+            self.assertEqual(status,200)
+            saved.append(job)
+        database.initialize_database()
+        for index,job in enumerate(saved):
+            status,reopened=await self.request('GET','/jobs/'+job['id'])
+            self.assertEqual(status,200)
+            self.assertEqual(reopened['messages'][0]['content'],descriptions[index])
+            self.assertEqual(reopened['notes'],'Mower '+str(index+1)+' observation')
+            self.assertEqual(reopened['parts'],['Item '+str(index+1)])
+            follow=await self.ask('What are my notes?',job['id'])
+            self.assertIn('Mower '+str(index+1)+' observation',follow['messages'][-1]['content'])
+
+    async def test_online_limitation_preserves_useful_symptom_guidance(self):
+        import os
+        with patch.dict(os.environ,GOPHERTECH_RESEARCH_NETWORK='1'):
+            job=await self.ask('JD mower wont start')
+        answer=job['messages'][-1]['content']
+        self.assertIn('Next useful check',answer)
+        self.assertIn('Reference lookup',answer)
+        self.assertEqual(job['context']['brand'],'John Deere')

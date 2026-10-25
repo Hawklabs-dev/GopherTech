@@ -139,44 +139,58 @@ def save_state(job_id: UUID, item: JobState):
 def route_question(previous, question):
     context = dict(previous)
     lower = question.lower().replace('’', "'")
-    lower = re.sub(r'\bjohn deer\b', 'john deere', lower)
+    lower = re.sub(r'\b(?:john\s+deer|jd)\b', 'john deere', lower)
+    lower = re.sub(r'\bhond[ae]\b', 'honda', lower)
+    lower = re.sub(r'\b(?:b&s|briggs and stratton)\b', 'briggs', lower)
+    if re.search(r'\b(?:other|another|different|second|third)\s+(?:riding\s+)?(?:mower|tractor|engine|machine)\b', lower):
+        context = {}
+    if any(term in lower for term in ('walk me through', 'step by step', 'never done', 'beginner')):
+        context['response_style'] = 'guided'
+    elif any(term in lower for term in ('quick answer', 'short answer', 'keep it short')):
+        context['response_style'] = 'quick'
+    elif any(term in lower for term in ('technical version', 'more detail', 'explain that')):
+        context['response_style'] = 'detailed'
     if 'turf ranger' in lower or 'turfranger' in lower:
         if context.get('model') != 'Turf Ranger':
             context = {}
         context.update(model='Turf Ranger')
         if 'exmark' in lower: context['brand'] = 'Exmark'
     deere_model = re.search(r'\b[dxes]\d{3}\b', lower)
-    if deere_model and ('deere' in lower or context.get('brand') == 'John Deere'):
-        context['model'] = deere_model.group().upper()
     model = re.search(r'\b(?:igx|igxv|gxv|gx|gcv|gc|gsv|gs|gxh|gxr)\s*-?\s*\d{2,3}\b', lower)
     if model:
         value = re.sub(r'[\s-]', '', model.group()).upper()
         if context.get('model') != value:
-            for key in ('serial', 'year', 'fuel', 'fuel_observation'):
+            for key in ('serial', 'year', 'fuel', 'fuel_observation', 'symptom', 'research_question'):
                 context.pop(key, None)
         context.update(brand='Honda', model=value)
     else:
         for token, brand in [('honda', 'Honda'), ('briggs', 'Briggs & Stratton'), ('vanguard', 'Vanguard'), ('kawasaki', 'Kawasaki'), ('kohler', 'Kohler'), ('john deere', 'John Deere'), ('kubota', 'Kubota'), ('exmark', 'Exmark')]:
             if token in lower:
                 if context.get('brand') not in (None, brand):
-                    for key in ('model', 'serial', 'year', 'fuel', 'fuel_observation'):
+                    for key in ('model', 'serial', 'year', 'fuel', 'fuel_observation', 'symptom', 'research_question'):
                         context.pop(key, None)
                 context['brand'] = brand
                 break
-        explicit = re.search(r'\bmodel\s*[:#]?\s*([a-z0-9][a-z0-9-]{2,30})\b', lower)
+        explicit = re.search(r'\bmodel\s*(?:is\s+)?[:#]?\s*([a-z0-9][a-z0-9-]{2,30})\b', lower)
+        if deere_model and context.get('brand') == 'John Deere':
+            explicit = deere_model
+
         if explicit:
-            if context.get('model') != explicit.group(1).upper():
-                for key in ('serial', 'year', 'fuel_observation'):
+            identified_model = (explicit.group() if explicit is deere_model else explicit.group(1)).upper()
+            if context.get('model') != identified_model:
+                for key in ('serial', 'year', 'fuel', 'fuel_observation', 'symptom', 'research_question'):
                     context.pop(key, None)
-            context['model'] = explicit.group(1).upper()
+            context['model'] = identified_model
     for name, pattern in [('serial', r'\b(?:serial(?:\s+(?:number|prefix))?|prefix)\s*[:#]?\s*([a-z0-9][a-z0-9-]{2,40})'), ('year', r'\b(?:19|20)\d{2}\b')]:
         found = re.search(pattern, lower)
         if found:
             context[name] = (found.group(1) if name == 'serial' else found.group()).upper()
-    if context.get('brand') == 'Honda' and not context.get('serial'):
-        raw_prefix = re.search(r'\bgc(?:[a-z]{2,5}|\d{2})(?:[-\s]\d{5,10})?\b', lower)
+    if context.get('brand') == 'Honda':
+        raw_prefix = re.search(r'\bgc[a-z]{2,5}(?:[-\s]?\d{5,10})?\b', lower)
         if raw_prefix:
             context['serial'] = raw_prefix.group().upper()
+        elif re.fullmatch(r'\d{7}', lower.strip()) and re.fullmatch(r'GC[A-Z]{2,5}', context.get('serial', '')):
+            context['serial'] += '-' + lower.strip()
     for value, pattern in [('Canada', r'\b(?:canada|canadian|ontario)\b'), ('US', r'\b(?:united states|usa|u\.s\.)\b'), ('UK', r'\b(?:united kingdom|uk|britain)\b')]:
         if re.search(pattern, lower):
             context['region'] = value
@@ -193,7 +207,7 @@ def route_question(previous, question):
         context['intent'] = 'parts'
     elif any(word in lower for word in ('fabricat', 'weld', 'make a bracket', 'build a bracket')):
         context['intent'] = 'fabrication'
-    elif any(word in lower for word in ("won't start", 'will not start', 'not start', 'turns over', 'no start', 'runs rough', 'stalls', 'smoke')):
+    elif any(word in lower for word in ("won't start", 'will not start', 'not start', 'turns over', 'no start', 'runs rough', 'running rough', 'stalls', 'smoke', 'cranks', 'not starting', "doesn't start", 'wont start')):
         context['intent'] = 'troubleshoot'
         context['symptom'] = question
     elif any(word in lower for word in ('torque', 'clearance', 'specification', 'specs', 'spark plug gap')):
@@ -201,6 +215,8 @@ def route_question(previous, question):
     if any(word in lower for word in ('oil drain', 'drain plug', 'oil change')):
         context.update(intent='manual', document_kind='oil drain procedure')
     context.setdefault('intent', 'general')
+    if any(term in lower for term in ('manual', 'diagram', 'oil drain', 'drain plug', 'oil change', 'torque', 'specs', 'specification', 'spark plug gap', 'won\'t start', 'wont start', 'not start', 'runs rough', 'running rough', 'stalls', 'replacement', 'fabricat')):
+        context['task_question'] = question
     context['last_question'] = question
     return context
 
@@ -259,6 +275,8 @@ def reference_reply(context, question):
         reply = 'I cannot give an unverified specification. Use the exact model-specific service document.\n\nNo torque, clearance or part number has been established. Open a manufacturer source below; a generic manual is not proof that a value applies.\n\nWhich component and exact engine model are you working on?'
     else:
         reply = 'I can keep your job context and help locate supported references. Live AI is unavailable.\n\nWhat machine or part are you working on, and what do you want to find out?'
+    if context.get('response_style') == 'guided' and intent == 'troubleshoot':
+        reply += '\n\nTake it one check at a time:\n1. Secure the machine and read its identification plate with the engine stopped.\n2. Tell me what you observed during the last starting attempt; avoid repeated cranking.\n3. Compare that observation with the matching manual before choosing an intrusive test. Stop for leaks, damaged wiring or unsafe conditions.'
     return lead + reply
 
 
@@ -279,13 +297,22 @@ def ask_question(item: Question):
         local = knowledge.find(c, context, item.question, job_id)
     reply = answering.build(context, item.question, local, reference_reply)
     documents = []
-    if local['needs_online']:
-        research_question = item.question
-        if context.get('intent') == job['context'].get('intent') and any(key in context and context.get(key) != job['context'].get(key) for key in ('serial', 'region')):
-            research_question = job['context'].get('research_question', job['context'].get('last_question', item.question))
+    if not local['needs_online']:
+        usable = next((entry for entry in local['findings'] if entry['kind'] == 'document' and entry['sufficient'] and not entry['stale']), None)
+        if usable:
+            with closing(connect()) as c:
+                row = c.execute('SELECT document FROM workshop_sources WHERE id=?', (usable['source_id'],)).fetchone()
+            if row:
+                snapshot = json.loads(row['document'])
+                if snapshot.get('format') == 'pdf':
+                    reply = 'From a saved reference (not refreshed):\n\n' + retrieval.extract(snapshot, context.get('task_question', item.question), context)
+    if local['needs_online'] and context.get('intent') in ('manual', 'specification', 'parts', 'troubleshoot'):
+        research_question = context.get('task_question', item.question)
         context['research_question'] = research_question
         documents, online_reply = retrieval.answer(context, research_question, matching_sources(context))
-        if online_reply: reply = online_reply
+        if online_reply:
+            # Research limitations supplement useful symptom guidance rather than replacing it.
+            reply = reply + '\n\nReference lookup: ' + online_reply if context['intent'] == 'troubleshoot' and not documents else online_reply
     timestamp = now()
     with closing(connect()) as c, c:
         c.execute('BEGIN IMMEDIATE')

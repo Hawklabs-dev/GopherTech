@@ -31,6 +31,19 @@ func run() -> void:
 	check(not "Original UI fixture source" in work.conversation.text, "supporting sources start collapsed")
 	work.on_link("sources")
 	check("Original UI fixture source" in work.conversation.text, "supporting sources remain accessible")
+	var sourced := "Page 7: Original fixture finding.\n\nLocal AI selected this fixture. Exact source extracts; applicability still needs confirmation.\n\nSource: https://engines.honda.com/fixture\nCheck region and follow all precautions."
+	var brief: String = work.brief_answer(sourced)
+	check("Page 7" in brief and "Source:" in brief and "precautions" in brief, "finding, citation and precautions stay visible without expanding details")
+	work.operation = "question"
+	work.submitted_question = "Original submitted question"
+	work.question.text = "A new draft typed while waiting"
+	var reply := {"id":"ui-fixture", "title":"Fixture", "notes":"", "parts":[], "sources":[], "messages":[{"id":3,"role":"assistant","content":sourced}]}
+	work.on_response(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify(reply).to_utf8_buffer())
+	check(work.question.text == "A new draft typed while waiting", "incoming answer preserves a newer draft")
+	await process_frame
+	await process_frame
+	await create_timer(0.3).timeout
+	check(shop.page_scroll.scroll_vertical >= 0, "answer scrolling completes without errors")
 	for key in shop.navigation:
 		shop.menu_button.get_popup().id_pressed.emit(shop.navigation.keys().find(key))
 		check(shop.active_page == key, "menu opens " + key)
