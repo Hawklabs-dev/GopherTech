@@ -37,6 +37,8 @@ var request_key := ""
 var request_fingerprint := ""
 var create_key := ""
 var applying := false
+var expanded_details: Dictionary = {}
+var sources_expanded := false
 
 func label(parent: Node, value: String, size: int = 15) -> Label:
 	var node := Label.new()
@@ -68,18 +70,18 @@ func _ready() -> void:
 	var configured := OS.get_environment("GOPHERTECH_API_URL").strip_edges().trim_suffix("/")
 	if not configured.is_empty(): api_url = configured
 	question = TextEdit.new()
-	question.placeholder_text = "My tractor turns over but won't start.\nFind the manual for my Honda GX160.\nHelp identify this replacement part."
+	question.placeholder_text = "Ask about a problem, part, manual or repair…"
 	question.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	question.custom_minimum_size.y = 140
+	question.custom_minimum_size.y = 110
 	add_child(question)
 	ask_button = Button.new()
 	ask_button.text = "Ask GopherTech"
 	ask_button.custom_minimum_size.y = 54
 	ask_button.pressed.connect(ask)
 	add_child(ask_button)
-	status = label(self, "Reference mode • AI is unavailable. Questions and job context save to SQLite when the backend is connected.")
-	conversation = rich(self, 260)
-	conversation.text = "[color=#ffb347]Start with your question.[/color]\n\nI'll keep the details with this job. Reference mode uses limited guided rules and manufacturer references; it does not generate an AI diagnosis."
+	status = label(self, "Reference mode · AI not connected. Your work saves locally.", 13)
+	conversation = rich(self, 160)
+	conversation.text = "Ask in your own words. I’ll keep the useful details with this conversation."
 	document_panel = VBoxContainer.new()
 	document_panel.add_theme_constant_override("separation", 12)
 	document_panel.visible = false
@@ -263,27 +265,58 @@ func apply_job(value: Dictionary) -> void:
 	if job.get("id", "") != value.get("id", ""):
 		document = {}
 		document_panel.visible = false
+		expanded_details.clear()
+		sources_expanded = false
 	job = value
 	for name in pending_state: job[name] = pending_state[name]
 	applying = true
 	notes.text = job.get("notes", "")
 	applying = false
 	source_records = job.get("sources", [])
+	render_conversation()
+	job_loaded.emit(job)
+
+func brief_answer(value: String) -> String:
+	var paragraphs := value.split("\n\n", false)
+	if paragraphs.size() > 1 and paragraphs[0].begins_with("Keeping "):
+		paragraphs.remove_at(0)
+	if paragraphs.is_empty(): return value
+	var selected := PackedStringArray([paragraphs[0]])
+	for paragraph in paragraphs.slice(1):
+		if paragraph.begins_with("Next ") or paragraph.begins_with("No matching ") or "Do not " in paragraph or "do not " in paragraph or paragraph.begins_with("Keep ignition") or "not verified engineering" in paragraph or paragraph.ends_with("?"):
+			selected.append(paragraph)
+	return "\n\n".join(selected)
+
+func render_conversation() -> void:
 	var transcript := ""
 	for entry in job.get("messages", []):
-		transcript += "[color=#ffb347][b]%s[/b][/color]\n%s\n\n" % ["You" if entry["role"] == "user" else "GopherTech · Reference mode", escape(entry["content"])]
-	if transcript.is_empty(): transcript = "This job has no questions yet. Ask above to continue.\n\n"
+		var id := str(entry["id"])
+		var content: String = entry["content"]
+		if entry["role"] == "assistant" and not expanded_details.get(id, false):
+			content = brief_answer(content)
+		transcript += "[color=#ffb347][b]%s[/b][/color]\n%s\n" % ["You" if entry["role"] == "user" else "GopherTech", escape(content)]
+		if entry["role"] == "assistant":
+			transcript += "[url=detail:%s][color=#a6b3c4]%s[/color][/url]\n" % [id, "Less detail" if expanded_details.get(id, false) else "Technical details"]
+		transcript += "\n"
+	if transcript.is_empty(): transcript = "Ask your question above to continue.\n\n"
 	if not source_records.is_empty():
-		transcript += "[b]Job references[/b] — locations are unverified until read; document applicability still needs checking.\n"
-	for index in range(source_records.size()):
-		var entry: Dictionary = source_records[index]
-		transcript += "[url=source:%d]%s[/url] · %s\n" % [index, escape(entry["title"]), "saved copy · " + str(entry.get("updated_at", "")).substr(0, 10) if entry.get("read", false) else "reference location"]
+		transcript += "[url=sources]Sources & saved findings (%d)[/url]\n" % source_records.size()
+	if sources_expanded:
+		for index in range(source_records.size()):
+			var entry: Dictionary = source_records[index]
+			transcript += "[url=source:%d]%s[/url] · %s\n" % [index, escape(entry["title"]), "saved copy · " + str(entry.get("updated_at", "")).substr(0, 10) if entry.get("read", false) else "unverified reference location"]
 	conversation.text = transcript
-	job_loaded.emit(job)
 
 func on_link(meta: Variant) -> void:
 	var value := str(meta)
-	if value.begins_with("source:"):
+	if value.begins_with("detail:"):
+		var id := value.trim_prefix("detail:")
+		expanded_details[id] = not expanded_details.get(id, false)
+		render_conversation()
+	elif value == "sources":
+		sources_expanded = not sources_expanded
+		render_conversation()
+	elif value.begins_with("source:"):
 		var index := value.trim_prefix("source:").to_int()
 		if index >= 0 and index < source_records.size(): open_reference(source_records[index]["url"])
 	elif value.begins_with("document:"):

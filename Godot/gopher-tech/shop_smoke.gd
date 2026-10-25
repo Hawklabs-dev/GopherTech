@@ -21,7 +21,7 @@ func run() -> void:
 	check(dashboard.pages["home"].visible, "home starts visible")
 	check(not dashboard.pages["equipment"].visible, "equipment registration is optional")
 	for key in dashboard.navigation:
-		dashboard.navigation[key].pressed.emit()
+		dashboard.menu_button.get_popup().id_pressed.emit(dashboard.navigation.keys().find(key))
 		check(dashboard.active_page == key, "navigation opens " + key)
 		var visible_pages := 0
 		for page in dashboard.pages.values():

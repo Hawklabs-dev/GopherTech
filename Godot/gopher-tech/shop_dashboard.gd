@@ -28,6 +28,8 @@ var tool_picker: OptionButton
 var tool_mount: VBoxContainer
 var active_tool := "references"
 var syncing_job := false
+var menu_button: MenuButton
+var outer_margin: MarginContainer
 const TOOL_CHOICES := [["references", "Manuals & diagrams"], ["parts", "Parts research"], ["diagnose", "Troubleshooting brief"], ["repair", "Repair brief"], ["fabricate", "Fabrication brief"], ["parts_list", "Parts list"], ["calculators", "Calculators"], ["equipment", "Equipment records"], ["bills", "Bills to pay"], ["invoices", "Invoices to collect"]]
 
 func text(value: String, size: int = 16, color: Color = Color("edf2f7")) -> Label:
@@ -107,42 +109,40 @@ func _ready() -> void:
 	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(backdrop)
 	var margin := MarginContainer.new()
+	outer_margin = margin
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for edge in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + edge, 22)
 	add_child(margin)
-	var layout := HBoxContainer.new()
-	layout.add_theme_constant_override("separation", 24)
+	var layout := VBoxContainer.new()
+	layout.add_theme_constant_override("separation", 16)
 	margin.add_child(layout)
-	var rail_scroll := ScrollContainer.new()
-	rail_scroll.custom_minimum_size.x = 180
-	rail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	layout.add_child(rail_scroll)
-	var rail := VBoxContainer.new()
-	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rail.add_theme_constant_override("separation", 9)
-	rail_scroll.add_child(rail)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 12)
+	layout.add_child(header)
 	var logo := TextureRect.new()
 	logo.texture = load("res://assets/gophertech-logo.png")
 	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	logo.custom_minimum_size = Vector2(170, 160)
-	rail.add_child(logo)
-	rail.add_child(text("THE SHOP DESK", 12, AMBER))
-	var tabs := [["home", "Ask GopherTech"], ["saved", "Saved Jobs"], ["tools", "Tools"]]
-	for tab in tabs:
-		var key: String = tab[0]
-		var button := action(tab[1], func(): show_page(key))
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		rail.add_child(button)
-		navigation[key] = button
-	rail.add_child(text("REFERENCE MODE\nAI is unavailable.\nNo paid API calls.", 13, MUTED))
-	rail.add_child(text("HAWKLABS\nBuilt for hands-on work.", 13, MUTED))
+	logo.custom_minimum_size = Vector2(64, 70)
+	header.add_child(logo)
+	var brand := VBoxContainer.new()
+	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(brand)
+	brand.add_child(text("GopherTech", 24, AMBER))
+	brand.add_child(text("Less clicking. More fixing.", 13, MUTED))
+	navigation = {"home":"Ask GopherTech", "saved":"Saved conversations", "tools":"Tools"}
+	menu_button = MenuButton.new()
+	menu_button.text = "Menu"
+	menu_button.custom_minimum_size = Vector2(66, 44)
+	header.add_child(menu_button)
+	for key in navigation: menu_button.get_popup().add_item(navigation[key])
+	menu_button.get_popup().id_pressed.connect(func(id: int): show_page(navigation.keys()[id]))
 	var main := VBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	main.add_theme_constant_override("separation", 8)
 	layout.add_child(main)
-	main.add_child(text("GOPHERTECH   /   YOUR WORKSHOP COMPANION", 12, AMBER))
 	page_title = text("", 30)
 	main.add_child(page_title)
 	page_hint = text("", 15, MUTED)
@@ -204,6 +204,10 @@ func _ready() -> void:
 	show_page("home")
 
 func adapt_layout() -> void:
+	if outer_margin != null:
+		for side in ["left", "right", "top", "bottom"]:
+			outer_margin.add_theme_constant_override("margin_" + side, 14 if size.x < 600 else 22)
+	if page_title != null: page_title.add_theme_font_size_override("font_size", 25 if size.x < 600 else 30)
 	if tile_grid != null:
 		tile_grid.columns = 1 if size.x < 960 else 2
 
@@ -219,10 +223,8 @@ func show_page(key: String) -> void:
 	page_scroll.set_deferred("scroll_vertical", 0)
 	for name in ["home", "saved", "tools"]: pages[name].visible = name == key
 	for choice in TOOL_CHOICES: pages[choice[0]].visible = choice[0] == active_tool
-	for name in navigation:
-		navigation[name].add_theme_color_override("font_color", AMBER if name == key else Color("edf2f7"))
 	page_title.text = {"home":"What are we working on?", "saved":"Saved Jobs", "tools":"Tools"}[key]
-	page_hint.text = "Ask naturally. No equipment profile needed." if key == "home" else "Continue a job." if key == "saved" else "Your existing workshop tools and records."
+	page_hint.text = "Ask. Find. Answer. Remember." if key == "home" else "Your saved findings and conversations." if key == "saved" else "Existing tools and records."
 	if key == "saved": job_workspace.refresh_jobs()
 
 func build_home() -> void:
