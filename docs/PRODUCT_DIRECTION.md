@@ -18,3 +18,12 @@ Introduce that depth progressively rather than putting it in the first screen.
 This document records future design requirements. It does not imply that these
 features are already implemented. Coordinate website messaging with the actual
 application capabilities as both evolve.
+
+## Owner decisions
+
+- Paid API setup and calls are paused until the owner agrees to a budget or
+  authorizes them when customers are paying. Do not silently enable paid services.
+- Research should stay inside the application. The current no-cost increment is
+  a manufacturer reference directory and document reader, not whole-web search.
+- Parts tools find and organize information; do not implement automatic buying.
+- A question notebook must not be presented as a connected AI assistant.

@@ -1,5 +1,5 @@
 extends Control
-## Standalone shop tools. Research opens in the browser only on an explicit click.
+## Standalone shop tools with in-app manufacturer references.
 ## No equipment registration, AI service, database writes, or purchases are required.
 
 const AMBER := Color("ffb347")
@@ -21,6 +21,8 @@ var conversion_result: Label
 var mix_fuel: LineEdit
 var mix_ratio: LineEdit
 var mix_result: Label
+var reference_desk: VBoxContainer
+var page_scroll: ScrollContainer
 
 func text(value: String, size: int = 16, color: Color = Color("edf2f7")) -> Label:
 	var node := Label.new()
@@ -121,13 +123,18 @@ func _ready() -> void:
 	logo.custom_minimum_size = Vector2(170, 160)
 	rail.add_child(logo)
 	rail.add_child(text("THE SHOP DESK", 12, AMBER))
-	var tabs := [["home", "Shop home"], ["parts", "Find a part"], ["diagnose", "Check a problem"], ["repair", "Repair help"], ["fabricate", "Fabrication"], ["parts_list", "My parts list"], ["calculators", "Shop calculators"], ["equipment", "Equipment"], ["bills", "Bills to pay"], ["invoices", "Invoices to collect"]]
+	var tabs := [["home", "Shop home"], ["parts", "Find a part"], ["diagnose", "Check a problem"], ["repair", "Repair help"], ["references", "Manuals & diagrams"], ["fabricate", "Fabrication"], ["parts_list", "My parts list"], ["calculators", "Shop calculators"], ["equipment", "Equipment"], ["bills", "Bills to pay"], ["invoices", "Invoices to collect"]]
 	for tab in tabs:
 		var key: String = tab[0]
 		var button := action(tab[1], func(): show_page(key))
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		rail.add_child(button)
 		navigation[key] = button
+		if key == "references":
+			rail.add_child(action("My shop questions", func():
+				show_page("references")
+				page_scroll.call_deferred("ensure_control_visible", reference_desk.question_notes)
+			))
 	rail.add_child(text("HAWKLABS\nBuilt for hands-on work.", 13, MUTED))
 	var main := VBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -139,6 +146,7 @@ func _ready() -> void:
 	page_hint = text("", 15, MUTED)
 	main.add_child(page_hint)
 	var scroll := ScrollContainer.new()
+	page_scroll = scroll
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	main.add_child(scroll)
@@ -150,6 +158,10 @@ func _ready() -> void:
 		build_research(key)
 	build_parts_list()
 	build_calculators()
+	var references := make_page("references")
+	reference_desk = load("res://reference_desk.gd").new()
+	reference_desk.focus_requested.connect(func(control: Control): page_scroll.call_deferred("ensure_control_visible", control))
+	references.add_child(reference_desk)
 	var equipment_page := make_page("equipment")
 	equipment_workspace = load("res://equipment_dashboard.tscn").instantiate()
 	equipment_workspace.embedded = true
@@ -175,12 +187,13 @@ func show_page(key: String) -> void:
 	if not pages.has(key):
 		return
 	active_page = key
+	page_scroll.set_deferred("scroll_vertical", 0)
 	for name in pages:
 		pages[name].visible = name == key
 	for name in navigation:
 		navigation[name].add_theme_color_override("font_color", AMBER if name == key else Color("edf2f7"))
 	var titles := {"home": "What are we working on?", "parts": "Find the right part.", "diagnose": "Start with what you know.", "repair": "Find the next repair step.", "fabricate": "Turn an idea into a clear brief.", "parts_list": "Your parts counter.", "calculators": "Keep the numbers simple.", "equipment": "Your equipment desk.", "bills": "Keep track of bills.", "invoices": "Keep track of invoices."}
-	page_title.text = titles[key]
+	page_title.text = "Your reference desk." if key == "references" else titles[key]
 	page_hint.text = "Quick help. No equipment profile required." if key in ["home", "parts", "diagnose", "repair", "fabricate"] else "Your existing workshop tools, close at hand."
 
 func build_home() -> void:
@@ -219,7 +232,8 @@ func build_home() -> void:
 	footer.add_child(text("Already know what you need?", 19))
 	footer.add_child(text("Build a parts list or use the fuel-mix and unit calculators. Equipment and business records are optional.", 15, MUTED))
 	footer.add_child(action("Open shop calculators", func(): show_page("calculators")))
-	home.add_child(text("Research tools are ready. Live AI diagnosis, stock, checkout and order tracking are not connected yet.", 13, MUTED))
+	footer.add_child(action("Open manuals & diagrams", func(): show_page("references")))
+	home.add_child(text("Read manufacturer references inside the app. Paid AI is paused. No purchasing or paid API calls are enabled.", 13, MUTED))
 
 func build_research(key: String) -> void:
 	var page := make_page(key)
@@ -273,14 +287,14 @@ func build_research(key: String) -> void:
 	actions.add_theme_constant_override("h_separation", 10)
 	box.add_child(actions)
 	actions.add_child(action("Build research brief", func(): prepare_research(key), true))
-	actions.add_child(action("Open web search", func(): open_research(key)))
+	actions.add_child(action("Find references in app", func(): open_research(key)))
 	var output := TextEdit.new()
 	output.editable = false
 	output.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	output.custom_minimum_size.y = 170
 	output.placeholder_text = "Your brief will appear here."
 	box.add_child(output)
-	box.add_child(text("Opens your browser and sends the search terms to Google. Check the source and exact model before acting or buying.", 13, MUTED))
+	box.add_child(text("Finds manufacturer reference sources inside GopherTech. This is a curated directory, not a whole-web search. Exact model fitment and availability are unverified.", 13, MUTED))
 	box.add_child(action("Copy brief", func():
 		if prepare_research(key):
 			DisplayServer.clipboard_set(output.text)
@@ -310,9 +324,6 @@ func search_query(key: String, values: Dictionary) -> String:
 		terms.append("fabrication material dimensions")
 	return " ".join(terms)
 
-func research_url(key: String, values: Dictionary) -> String:
-	return "https://www.google.com/search?q=" + search_query(key, values).uri_encode()
-
 func prepare_research(key: String) -> bool:
 	var form: Dictionary = research_forms[key]
 	var values := form_values(key)
@@ -331,20 +342,23 @@ func prepare_research(key: String) -> bool:
 	else:
 		lines.append("\nConfirm the exact model, procedure, tools and specifications in the manufacturer's service manual. No torque or repair specification has been generated.")
 	form["output"].text = "\n".join(lines)
-	form["message"].text = "Brief ready. Open the search or copy it. You stay in control."
+	form["message"].text = "Brief ready. Find references in app or copy it."
 	return true
 
 func open_research(key: String) -> void:
 	if not prepare_research(key):
 		return
-	var error := OS.shell_open(research_url(key, form_values(key)))
-	if error != OK:
-		research_forms[key]["message"].text = "Browser could not open. Copy the brief and search in your browser."
+	var values := form_values(key)
+	show_page("references")
+	reference_desk.query.text = search_query(key, values).left(600)
+	if reference_desk.question_notes.text.strip_edges().is_empty():
+		reference_desk.question_notes.text = research_forms[key]["output"].text
+	reference_desk.find_sources()
 
 func build_parts_list() -> void:
 	var page := make_page("parts_list")
 	var box := card(page)
-	box.add_child(text("Prepare the order. Check the fit. Buy with confidence.", 22))
+	box.add_child(text("Find the part. Check the fit. Keep the details.", 22))
 	box.add_child(text("Add items from Find a part, then copy the list for a supplier. This list is kept only while the app is open. No orders are placed and no stock or prices are checked.", 15, MUTED))
 	parts_view = ItemList.new()
 	parts_view.custom_minimum_size.y = 240

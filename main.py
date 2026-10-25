@@ -143,3 +143,6 @@ def checkin_equipment(equipment_id: int, item: EquipmentCheckin):
 
 from finance import router as finance_router
 app.include_router(finance_router)
+
+from research import router as research_router
+app.include_router(research_router)

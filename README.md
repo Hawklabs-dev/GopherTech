@@ -7,21 +7,32 @@ Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 F5 now opens the GopherTech shop dashboard. Your existing Equipment, Bills to pay,
 and Invoices to collect tools remain accessible from the left navigation.
 
-- **Find a part:** build a research query for parts, diagrams, or manuals; open
-  the query in your browser; prepare a supplier request in My parts list.
+- **Find a part:** build a research brief, find manufacturer reference sources
+  inside the app, and prepare a supplier request in My parts list.
 - **Check a problem / Repair help / Fabrication:** describe the task, add model
-  details if known, and build a brief to copy or research in your browser.
+  details if known, and build a brief to copy or take to the in-app reference desk.
+- **Manuals & diagrams:** browse the supported manufacturer directory, read
+  HTML/PDF text, filter document text, follow supported document links, and view
+  PDF page images without opening a browser.
 - **Shop calculators:** convert length, torque, and US fluid ounces, or calculate
   two-stroke oil quantity from your own manufacturer-specified ratio.
 
-Standalone tools do not need an equipment profile or a running backend. Form
-entries and the parts list last only for the current session; copy them before
-closing. Web searches explicitly open Google with the entered brand/model/task
-and selected research category. Notes are included in copied briefs, not search
-queries. These tools do not provide live AI diagnosis, verify part compatibility,
-check stock/prices, or place orders. Use the manufacturer's service information
-and confirm parts with the seller. The backend is still needed for existing
-equipment and finance records.
+No tool requires an equipment profile. Briefs and calculators work without the
+backend; the reference reader, equipment and finance screens require it. Form
+entries, questions and the parts list last only for the current session; copy
+them before closing. Notes are not sent to manufacturer websites.
+
+Paid AI setup and calls are paused by the owner. The question pad records your
+questions; it does not generate answers. There are no paid provider integrations,
+API keys, live stock/price checks, automatic purchases or verified fitment claims.
+No browser launches occur from research buttons.
+
+The reference directory currently covers Honda, Briggs & Stratton, Briggs Racing
+and Vanguard sources. It ranks known sources and can construct a Honda model
+lookup; it is **not** a live general web search or a guarantee of a matching
+manual. Source pages may require interactive forms that the text reader cannot
+run; try a direct supported PDF link in those cases. Confirm model, serial range,
+region and publication applicability before using a document.
 
 The supplied GopherTech logo and workshop reference are in
 `Godot/gopher-tech/assets/`. Product requirements are in
@@ -31,7 +42,35 @@ Shop checks (use a temporary project copy to avoid editor-cache changes):
 
 ```bash
 godot --headless --path Godot/gopher-tech --script res://shop_smoke.gd
+.venv/bin/python -B tests/run_dashboard_integration.py --references
 ```
+
+## Reference reader requirements and limits
+
+`research.py` uses Python's standard library and the existing FastAPI dependency.
+PDF text and original page images use the free Poppler command-line utilities
+`pdftotext` and `pdftoppm` on PATH (on Fedora, the `poppler-utils` package).
+The API reports a clear error if either required utility is missing; HTML reading
+still works. No dependency installation or paid calls occur automatically.
+
+Only HTTPS URLs on the supported manufacturer hosts are fetched. Every redirect
+is checked, DNS addresses must be public, and connections are pinned to a checked
+address while preserving TLS hostname verification. The reader does not execute
+JavaScript, submit forms, use logins, or accept arbitrary private/local URLs.
+Downloads are limited to 8 MiB, extracted text to 60 PDF pages / 100,000 characters,
+and page images to pages 1–60 at a maximum 1,400-pixel dimension. HTML is text-only;
+PDF page images retain diagrams and layout. Scanned PDFs may have no searchable
+text. Documents are held in a small five-minute memory cache, not the user DB.
+
+Reference endpoints:
+
+- `POST /research/sources`: `{ "query": "Honda GX160 manual" }`.
+- `POST /research/document`: `{ "url": "https://…" }`.
+- `POST /research/pdf-page`: `{ "url": "https://…pdf", "page": 1 }`.
+- `GET /research/status`: reader capabilities and explicit disabled AI status.
+
+The reference integration test uses original HTML/PDF fixtures through a real
+temporary HTTP backend; it does not call external sites or paid APIs.
 
 ## Run the existing backend
 

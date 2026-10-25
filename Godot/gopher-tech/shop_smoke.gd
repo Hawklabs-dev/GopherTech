@@ -15,7 +15,7 @@ func run() -> void:
 	root.add_child(dashboard)
 	await process_frame
 	check(dashboard.active_page == "home", "home is the entry point")
-	check(dashboard.pages.size() == 10, "all shop and legacy pages exist")
+	check(dashboard.pages.size() == 11, "all shop, reference and legacy pages exist")
 	check(dashboard.pages["home"].visible, "home starts visible")
 	check(not dashboard.pages["equipment"].visible, "equipment registration is optional")
 	for key in dashboard.navigation:
@@ -30,9 +30,26 @@ func run() -> void:
 		dashboard.research_forms[key]["inputs"]["task"].text = "Carburetor & gasket #123"
 		check(dashboard.prepare_research(key), "standalone request needs no model/profile")
 		check("Carburetor & gasket #123" in dashboard.research_forms[key]["output"].text, "brief retains request")
-		var url: String = dashboard.research_url(key, dashboard.form_values(key))
-		check(url.begins_with("https://www.google.com/search?q="), "search uses a fixed HTTPS destination")
-		check("%26" in url and "%23" in url, "query characters are encoded")
+		check("Carburetor & gasket #123" in dashboard.search_query(key, dashboard.form_values(key)), "query retains task details")
+	var desk = dashboard.reference_desk
+	desk.request_node.cancel_request()
+	desk.set_busy(false)
+	desk.operation = "document"
+	desk.on_response(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify({"text": "Engine manual\nDiagram on page 4\nCheck model applicability", "url": "https://engines.honda.com/manual", "format": "html", "links": [{"title": "Manual PDF", "url": "https://cdn.powerequipment.honda.com/manual.pdf"}]}).to_utf8_buffer())
+	check("Engine manual" in desk.reader.text, "manufacturer text displayed in app")
+	check(desk.links.item_count == 1, "document links displayed")
+	desk.filter_document("diagram")
+	check("Diagram on page 4" in desk.reader.text and not "Engine manual" in desk.reader.text, "document find filters text")
+	desk.filter_document("")
+	check("Engine manual" in desk.reader.text, "clearing find restores source")
+	desk.on_response(HTTPRequest.RESULT_CANT_CONNECT, 0, PackedStringArray(), PackedByteArray())
+	check("Engine manual" in desk.reader.text, "failed reference load preserves previous text")
+	desk.question_notes.text = "Keep my question"
+	dashboard.open_research("parts")
+	check(dashboard.active_page == "references", "research stays inside app")
+	check(desk.question_notes.text == "Keep my question", "new research does not overwrite questions")
+	desk.request_node.cancel_request()
+	desk.set_busy(false)
 	dashboard.add_part()
 	dashboard.add_part()
 	check(dashboard.parts.size() == 1, "identical parts are not added twice")
