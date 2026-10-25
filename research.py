@@ -217,7 +217,7 @@ def sources(item: SourceQuery):
 
 @router.get('/status')
 def research_status():
-    return dict(paid_services=False, ai_enabled=False, ai_reason='Paid AI setup and calls are paused by the owner. No local model is connected.',
+    return dict(paid_services=False, ai_enabled=False, ai_reason='Paid AI setup and calls are paused by the owner. Local passage selection is optional; see /system/info for its current status.',
                 pdf_text=bool(shutil.which('pdftotext')), pdf_pages=bool(shutil.which('pdftoppm')),
                 supported_hosts=sorted(HOSTS))
 
@@ -272,3 +272,12 @@ def pdf_page(item: PDFPageRequest):
         if result.returncode or not image.is_file():
             raise HTTPException(422, 'That PDF page is unavailable. Check the page number or try another document.')
         return dict(url=url, page=item.page, png_base64=base64.b64encode(image.read_bytes()).decode('ascii'))
+
+
+@router.post('/search')
+def search(item: SourceQuery):
+    if not item.query.strip():
+        raise HTTPException(422, 'Enter a search question.')
+    from dataclasses import asdict
+    import search_providers
+    return asdict(search_providers.provider().search(item.query))

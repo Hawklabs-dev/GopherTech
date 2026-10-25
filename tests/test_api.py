@@ -3,6 +3,7 @@
 Exercise the ASGI app directly, with no live server or extra test dependencies.
 Both database references are patched before entering the app lifespan.
 """
+import os
 import asyncio
 import json
 from pathlib import Path
@@ -21,7 +22,7 @@ class EquipmentAPITests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.db = Path(self.temp.name) / 'test.db'
-        self.patches = [patch.object(database, 'DATABASE', self.db),
+        self.patches = [patch.dict(os.environ, GOPHERTECH_LOCAL_AI='0', GOPHERTECH_RESEARCH_NETWORK='0'), patch.object(database, 'DATABASE', self.db),
                         patch.object(main, 'DATABASE', self.db)]
         for patcher in self.patches:
             patcher.start()

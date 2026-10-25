@@ -79,7 +79,7 @@ func _ready() -> void:
 	ask_button.custom_minimum_size.y = 54
 	ask_button.pressed.connect(ask)
 	add_child(ask_button)
-	status = label(self, "Reference mode · AI not connected. Your work saves locally.", 13)
+	status = label(self, "Source research · Your work saves locally.", 13)
 	conversation = rich(self, 160)
 	conversation.text = "Ask in your own words. I’ll keep the useful details with this conversation."
 	document_panel = VBoxContainer.new()
@@ -151,7 +151,7 @@ func _ready() -> void:
 		if not applying: notes_timer.start()
 	)
 	request_node = HTTPRequest.new()
-	request_node.timeout = 40.0
+	request_node.timeout = 90.0
 	request_node.body_size_limit = 16 * 1024 * 1024
 	request_node.request_completed.connect(on_response)
 	add_child(request_node)
@@ -190,7 +190,7 @@ func ask() -> void:
 		request_fingerprint = fingerprint
 	var body := {"question":value,"request_key":request_key}
 	if job.has("id"): body["job_id"] = job["id"]
-	set_status("Working in reference mode…")
+	set_status("Reading saved and manufacturer references…")
 	send("question", "/jobs/question", body)
 
 func refresh_jobs() -> void:
@@ -387,7 +387,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		set_status("Opened saved reference copy; it has not been refreshed. Check model, region and revision." if data.get("cached", false) else "Reference read and saved with this job. Check model, serial range and region.")
 	else:
 		apply_job(data)
-		set_status("Saved · " + str(job.get("title", "Workshop job")) + " · Reference mode, not AI.")
+		set_status("Saved · " + str(job.get("title", "Workshop job")) + " · Source research.")
 		if operation == "question":
 			question.text = ""
 			request_key = ""

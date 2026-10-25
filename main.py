@@ -14,6 +14,10 @@ app = FastAPI(
 @app.on_event("startup")
 def startup():
     initialize_database()
+    import local_ai
+    import threading
+    if local_ai.enabled():
+        threading.Thread(target=local_ai.start, daemon=True).start()
 
 
 @app.get("/")
@@ -149,3 +153,9 @@ app.include_router(research_router)
 
 from jobs import router as jobs_router
 app.include_router(jobs_router)
+
+
+@app.get('/system/info')
+def system_info():
+    import local_ai
+    return dict(application='GopherTech', backend_revision='shop-buddy-2-3', local_ai=local_ai.status(), paid_calls=False, research='Bounded manufacturer document retrieval; no whole-web search provider configured')

@@ -11,6 +11,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 import database
 import research
+import knowledge
+import answering
+import search_providers
+import retrieval
+import local_ai
 
 router = APIRouter(prefix='/jobs', tags=['Workshop jobs'])
 MODE = 'Reference mode — guided rules, not AI'
@@ -86,6 +91,7 @@ def get_job(c, job_id):
     ranks = {entry['url']: index for index, entry in enumerate(matching_sources(job['context']))}
     job['sources'].sort(key=lambda entry: (0 if entry['read'] else 1, ranks.get(entry['url'], 100), entry['id']))
     job.update(mode=MODE, ai_enabled=False)
+    job['research'] = dict(local_checked=True, **json.loads(job['context'].pop('_research', '{}')))
     return job
 
 
@@ -133,6 +139,15 @@ def save_state(job_id: UUID, item: JobState):
 def route_question(previous, question):
     context = dict(previous)
     lower = question.lower().replace('’', "'")
+    lower = re.sub(r'\bjohn deer\b', 'john deere', lower)
+    if 'turf ranger' in lower or 'turfranger' in lower:
+        if context.get('model') != 'Turf Ranger':
+            context = {}
+        context.update(model='Turf Ranger')
+        if 'exmark' in lower: context['brand'] = 'Exmark'
+    deere_model = re.search(r'\b[dxes]\d{3}\b', lower)
+    if deere_model and ('deere' in lower or context.get('brand') == 'John Deere'):
+        context['model'] = deere_model.group().upper()
     model = re.search(r'\b(?:igx|igxv|gxv|gx|gcv|gc|gsv|gs|gxh|gxr)\s*-?\s*\d{2,3}\b', lower)
     if model:
         value = re.sub(r'[\s-]', '', model.group()).upper()
@@ -141,7 +156,7 @@ def route_question(previous, question):
                 context.pop(key, None)
         context.update(brand='Honda', model=value)
     else:
-        for token, brand in [('honda', 'Honda'), ('briggs', 'Briggs & Stratton'), ('vanguard', 'Vanguard'), ('kawasaki', 'Kawasaki'), ('kohler', 'Kohler'), ('john deere', 'John Deere'), ('kubota', 'Kubota')]:
+        for token, brand in [('honda', 'Honda'), ('briggs', 'Briggs & Stratton'), ('vanguard', 'Vanguard'), ('kawasaki', 'Kawasaki'), ('kohler', 'Kohler'), ('john deere', 'John Deere'), ('kubota', 'Kubota'), ('exmark', 'Exmark')]:
             if token in lower:
                 if context.get('brand') not in (None, brand):
                     for key in ('model', 'serial', 'year', 'fuel', 'fuel_observation'):
@@ -150,6 +165,9 @@ def route_question(previous, question):
                 break
         explicit = re.search(r'\bmodel\s*[:#]?\s*([a-z0-9][a-z0-9-]{2,30})\b', lower)
         if explicit:
+            if context.get('model') != explicit.group(1).upper():
+                for key in ('serial', 'year', 'fuel_observation'):
+                    context.pop(key, None)
             context['model'] = explicit.group(1).upper()
     for name, pattern in [('serial', r'\b(?:serial(?:\s+(?:number|prefix))?|prefix)\s*[:#]?\s*([a-z0-9][a-z0-9-]{2,40})'), ('year', r'\b(?:19|20)\d{2}\b')]:
         found = re.search(pattern, lower)
@@ -178,8 +196,10 @@ def route_question(previous, question):
     elif any(word in lower for word in ("won't start", 'will not start', 'not start', 'turns over', 'no start', 'runs rough', 'stalls', 'smoke')):
         context['intent'] = 'troubleshoot'
         context['symptom'] = question
-    elif any(word in lower for word in ('torque', 'clearance', 'specification', 'spark plug gap')):
+    elif any(word in lower for word in ('torque', 'clearance', 'specification', 'specs', 'spark plug gap')):
         context['intent'] = 'specification'
+    if any(word in lower for word in ('oil drain', 'drain plug', 'oil change')):
+        context.update(intent='manual', document_kind='oil drain procedure')
     context.setdefault('intent', 'general')
     context['last_question'] = question
     return context
@@ -244,23 +264,50 @@ def reference_reply(context, question):
 
 @router.post('/question')
 def ask_question(item: Question):
+    # Resolve/replay briefly, then release SQLite before any network or inference.
     with closing(connect()) as c, c:
-        c.execute('BEGIN IMMEDIATE')
         existing = c.execute('SELECT job_id,request_question FROM workshop_messages WHERE request_key=?', (str(item.request_key),)).fetchone()
         if existing:
             if existing['request_question'] != item.question or (item.job_id and existing['job_id'] != str(item.job_id)):
                 raise HTTPException(409, 'This question request was already used for different details.')
             return get_job(c, existing['job_id'])
-        job_id = str(item.job_id) if item.job_id else insert_job(c, item.question)
+        pending = c.execute('SELECT id FROM workshop_jobs WHERE creation_key=?', (str(item.request_key),)).fetchone()
+        job_id = str(item.job_id) if item.job_id else pending['id'] if pending else insert_job(c, item.question, str(item.request_key))
         job = get_job(c, job_id)
+        revision = job['messages'][-1]['id'] if job['messages'] else 0
         context = route_question(job['context'], item.question)
-        reply = reference_reply(context, item.question)
-        timestamp = now()
+        local = knowledge.find(c, context, item.question, job_id)
+    reply = answering.build(context, item.question, local, reference_reply)
+    documents = []
+    if local['needs_online']:
+        research_question = item.question
+        if context.get('intent') == job['context'].get('intent') and any(key in context and context.get(key) != job['context'].get(key) for key in ('serial', 'region')):
+            research_question = job['context'].get('research_question', job['context'].get('last_question', item.question))
+        context['research_question'] = research_question
+        documents, online_reply = retrieval.answer(context, research_question, matching_sources(context))
+        if online_reply: reply = online_reply
+    timestamp = now()
+    with closing(connect()) as c, c:
+        c.execute('BEGIN IMMEDIATE')
+        existing = c.execute('SELECT job_id,request_question FROM workshop_messages WHERE request_key=?', (str(item.request_key),)).fetchone()
+        if existing:
+            if existing['request_question'] != item.question: raise HTTPException(409, 'Request key reused.')
+            return get_job(c, existing['job_id'])
+        current = c.execute('SELECT COALESCE(MAX(id),0) FROM workshop_messages WHERE job_id=?', (job_id,)).fetchone()[0]
+        if current != revision: raise HTTPException(409, 'Another answer arrived. Please ask again using the updated conversation.')
+        context['_research'] = json.dumps(dict(findings=local['findings'], needs_online=local['needs_online'], plan=search_providers.search_plan(context, item.question)))
         c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at,request_key,request_question) VALUES(?,?,?,?,?,?)', (job_id, 'user', item.question, timestamp, str(item.request_key), item.question))
         c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at) VALUES(?,?,?,?)', (job_id, 'assistant', reply, timestamp))
         c.execute('UPDATE workshop_jobs SET context=?,updated_at=? WHERE id=?', (json.dumps(context), timestamp, job_id))
         for source in matching_sources(context):
             c.execute('INSERT OR IGNORE INTO workshop_sources(job_id,url,title,updated_at) VALUES(?,?,?,?)', (job_id, source['url'], source['title'], timestamp))
+        for finding in local['findings']:
+            if finding['kind'] == 'document' and finding.get('sufficient') and not finding['stale']:
+                row = c.execute('SELECT document FROM workshop_sources WHERE id=?', (finding['source_id'],)).fetchone()
+                if row:
+                    c.execute('INSERT OR IGNORE INTO workshop_sources(job_id,url,title,document,updated_at) VALUES(?,?,?,?,?)', (job_id, finding['url'], finding['title'], row['document'], timestamp))
+        for doc in documents:
+            c.execute('INSERT INTO workshop_sources(job_id,url,title,document,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(job_id,url) DO UPDATE SET document=excluded.document,updated_at=excluded.updated_at', (job_id, doc['url'], doc.get('title',doc['url']), json.dumps(doc), timestamp))
         return get_job(c, job_id)
 
 
@@ -274,6 +321,7 @@ def read_job_reference(job_id: UUID, item: research.DocumentRequest):
             return dict(job=job, document=focus_document(json.loads(row['document']), job['context']), cached=True)
     # The transaction is kept short: no network request holds the DB write lock.
     document = focus_document(research.document(item), get_context(job_id))
+    document.update(retrieved_at=now(), saved_context=get_context(job_id), verification_status='source read; applicability unverified')
     with closing(connect()) as c, c:
         timestamp = now()
         c.execute('''INSERT INTO workshop_sources(job_id,url,title,document,updated_at) VALUES(?,?,?,?,?)
