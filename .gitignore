@@ -1,0 +1,62 @@
+# Local Python environment and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Godot editor cache
+.godot/
+build/
+builds/
+dist/
+exports/
+*.pck
+
+# Local SQLite data and associated files
+*.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.*
+
+# Backups and recovery archives stay outside source control
+backup/
+backups/
+*.bak
+*.backup
+*.bundle
+*.tar
+*.tar.gz
+*.tgz
+
+# Local configuration
+.env
+.env.*
+!.env.example
+.aws/
+.ssh/
+secrets/
+credentials/
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor and operating-system temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
