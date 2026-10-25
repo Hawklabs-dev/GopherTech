@@ -2,6 +2,37 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
+## Shop home
+
+F5 now opens the GopherTech shop dashboard. Your existing Equipment, Bills to pay,
+and Invoices to collect tools remain accessible from the left navigation.
+
+- **Find a part:** build a research query for parts, diagrams, or manuals; open
+  the query in your browser; prepare a supplier request in My parts list.
+- **Check a problem / Repair help / Fabrication:** describe the task, add model
+  details if known, and build a brief to copy or research in your browser.
+- **Shop calculators:** convert length, torque, and US fluid ounces, or calculate
+  two-stroke oil quantity from your own manufacturer-specified ratio.
+
+Standalone tools do not need an equipment profile or a running backend. Form
+entries and the parts list last only for the current session; copy them before
+closing. Web searches explicitly open Google with the entered brand/model/task
+and selected research category. Notes are included in copied briefs, not search
+queries. These tools do not provide live AI diagnosis, verify part compatibility,
+check stock/prices, or place orders. Use the manufacturer's service information
+and confirm parts with the seller. The backend is still needed for existing
+equipment and finance records.
+
+The supplied GopherTech logo and workshop reference are in
+`Godot/gopher-tech/assets/`. Product requirements are in
+`docs/PRODUCT_DIRECTION.md`. The original equipment scene still runs directly.
+
+Shop checks (use a temporary project copy to avoid editor-cache changes):
+
+```bash
+godot --headless --path Godot/gopher-tech --script res://shop_smoke.gd
+```
+
 ## Run the existing backend
 
 From a terminal:

@@ -1,5 +1,7 @@
 extends Control
 
+@export var embedded := false
+
 var equipment: Array = []
 var visible_equipment: Array = []
 var busy := false
@@ -54,13 +56,14 @@ func _ready() -> void:
 		api_url = configured
 	var background := ColorRect.new()
 	background.color = Color("0c1420")
+	background.visible = not embedded
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 28)
+		margin.add_theme_constant_override("margin_" + side, 0 if embedded else 28)
 	add_child(margin)
 	var scroll := ScrollContainer.new()
 	margin.add_child(scroll)
@@ -68,11 +71,13 @@ func _ready() -> void:
 	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_theme_constant_override("separation", 18)
 	scroll.add_child(root)
-	root.add_child(label("HAWKLABS  /  WORKSHOP", 14))
-	root.add_child(label("GopherTech", 36))
-	root.add_child(label("Your workshop. Your business.", 18))
+	if not embedded:
+		root.add_child(label("HAWKLABS  /  WORKSHOP", 14))
+		root.add_child(label("GopherTech", 36))
+		root.add_child(label("Your workshop. Your business.", 18))
 	var navigation := HBoxContainer.new()
 	root.add_child(navigation)
+	navigation.visible = not embedded
 	var equipment_page := VBoxContainer.new()
 	equipment_page.add_theme_constant_override("separation", 18)
 	root.add_child(equipment_page)
