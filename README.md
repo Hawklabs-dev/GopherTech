@@ -2,48 +2,62 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
-## Shop home
+## Question-first prototype
 
-F5 now opens the GopherTech shop dashboard. Your existing Equipment, Bills to pay,
-and Invoices to collect tools remain accessible from the left navigation.
+F5 opens a simple screen with the GopherTech logo, **What are we working on?**,
+one large question box, **Ask GopherTech**, and the conversation below.
+There are only three main navigation choices:
 
-- **Find a part:** build a research brief, find manufacturer reference sources
-  inside the app, and prepare a supplier request in My parts list.
-- **Check a problem / Repair help / Fabrication:** describe the task, add model
-  details if known, and build a brief to copy or take to the in-app reference desk.
-- **Manuals & diagrams:** browse the supported manufacturer directory, read
-  HTML/PDF text, filter document text, follow supported document links, and view
-  PDF page images without opening a browser.
-- **Shop calculators:** convert length, torque, and US fluid ounces, or calculate
-  two-stroke oil quantity from your own manufacturer-specified ratio.
+- **Ask GopherTech:** type a question, answer a relevant follow-up, and open
+  suggested manufacturer references inside the conversation screen.
+- **Saved Jobs:** reopen a conversation, start a new job, or edit current-job notes.
+- **Tools:** one selector gives access to the existing parts/manual/diagram,
+  fabrication, calculator, equipment, payable and receivable tools.
 
-No tool requires an equipment profile. Briefs and calculators work without the
-backend; the reference reader, equipment and finance screens require it. Form
-entries, questions and the parts list last only for the current session; copy
-them before closing. Notes are not sent to manufacturer websites.
+This is explicitly **reference mode, not AI**. The backend uses limited,
+deterministic routing and guided checklists for common requests. It remembers
+explicit engine/model, fuel, serial, year and region information within the job.
+It cannot reason about arbitrary symptoms, identify photos or infer an unknown
+specification. Unsupported questions get an honest limitation or follow-up.
+No AI provider, keys, billing, purchases or paid calls are enabled.
 
-Paid AI setup and calls are paused by the owner. The question pad records your
-questions; it does not generate answers. There are no paid provider integrations,
-API keys, live stock/price checks, automatic purchases or verified fitment claims.
-No browser launches occur from research buttons.
+Start (or restart) `./run_backend.sh`, then F5 in Godot. No equipment profile is
+required. Asking the first question automatically creates a workshop job in the
+existing SQLite database. Subsequent questions, notes, parts lists and reference
+URLs are saved with it. Read document text and link metadata are archived so that
+saved copies can reopen even when the website is unavailable. PDF page images
+still need the original PDF to be reachable (or in the short-lived memory cache).
+If the backend is unavailable, unsaved questions stay in the input and the UI
+reports that saving was not confirmed; do not close the app before reconnecting.
 
-The reference directory currently covers Honda, Briggs & Stratton, Briggs Racing
-and Vanguard sources. It ranks known sources and can construct a Honda model
-lookup; it is **not** a live general web search or a guarantee of a matching
-manual. Source pages may require interactive forms that the text reader cannot
-run; try a direct supported PDF link in those cases. Confirm model, serial range,
-region and publication applicability before using a document.
+The limited manufacturer directory covers Honda, Briggs & Stratton, Briggs Racing
+and Vanguard. Conversation suggestions filter by recognized brand and prioritize
+model-specific locations. A suggested URL is not a successful search, a verified
+manual, or proof of compatibility. Region, serial range, year, revision and
+applicability must still be checked. Owner manuals may lack service/wiring/
+hydraulic diagrams. Unsupported manufacturers, missing documents and blocked
+interactive sites are reported honestly. Opening an external copy is an optional
+link in the document view; it is not the default action.
 
-The supplied GopherTech logo and workshop reference are in
-`Godot/gopher-tech/assets/`. Product requirements are in
-`docs/PRODUCT_DIRECTION.md`. The original equipment scene still runs directly.
+Use the source links beneath the conversation to read documents in app. Actual
+serial-table text is retained with document links where the source page supplies
+it. Saved Jobs can resume the context after both app and backend restart.
+Tool briefs and calculator input fields remain transient; durable job notes,
+parts, questions and read references use the new additive workshop tables.
+Existing equipment, loans and finance tables and routes are preserved.
 
-Shop checks (use a temporary project copy to avoid editor-cache changes):
+Verification (prefer a temporary project copy to avoid editor-cache changes):
 
 ```bash
+.venv/bin/python -B -m unittest discover -s tests -v
 godot --headless --path Godot/gopher-tech --script res://shop_smoke.gd
 .venv/bin/python -B tests/run_dashboard_integration.py --references
+.venv/bin/python -B tests/run_prototype_integration.py
 ```
+
+The prototype integration uses original document fixtures and one disposable
+SQLite database across **two backend lifetimes and two Godot processes**. No
+manufacturer network access or paid API calls occur during this test.
 
 ## Reference reader requirements and limits
 
@@ -60,7 +74,7 @@ JavaScript, submit forms, use logins, or accept arbitrary private/local URLs.
 Downloads are limited to 8 MiB, extracted text to 60 PDF pages / 100,000 characters,
 and page images to pages 1–60 at a maximum 1,400-pixel dimension. HTML is text-only;
 PDF page images retain diagrams and layout. Scanned PDFs may have no searchable
-text. Documents are held in a small five-minute memory cache, not the user DB.
+text. Raw downloads use a small five-minute memory cache. Read text/link snapshots opened through a job are persisted in the local user DB; no raw PDF or rendered page image is stored there.
 
 Reference endpoints:
 
@@ -220,9 +234,7 @@ original-format temporary databases.
 
 ## Bills to pay and invoices to collect
 
-Use the three buttons across the top of the dashboard to switch between
-**Equipment**, **Bills to pay** (accounts payable), and **Invoices to collect**
-(accounts receivable).
+Choose **Tools**, then select **Equipment records**, **Bills to pay** (accounts payable), or **Invoices to collect** (accounts receivable).
 
 To add a record, choose **Add a bill** or **Add an invoice**. Enter the supplier
 or customer, bill/invoice number, issue date, due date, currency, and the existing

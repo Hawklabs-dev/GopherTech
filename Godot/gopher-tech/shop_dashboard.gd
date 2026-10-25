@@ -23,6 +23,12 @@ var mix_ratio: LineEdit
 var mix_result: Label
 var reference_desk: VBoxContainer
 var page_scroll: ScrollContainer
+var job_workspace: VBoxContainer
+var tool_picker: OptionButton
+var tool_mount: VBoxContainer
+var active_tool := "references"
+var syncing_job := false
+const TOOL_CHOICES := [["references", "Manuals & diagrams"], ["parts", "Parts research"], ["diagnose", "Troubleshooting brief"], ["repair", "Repair brief"], ["fabricate", "Fabrication brief"], ["parts_list", "Parts list"], ["calculators", "Calculators"], ["equipment", "Equipment records"], ["bills", "Bills to pay"], ["invoices", "Invoices to collect"]]
 
 func text(value: String, size: int = 16, color: Color = Color("edf2f7")) -> Label:
 	var node := Label.new()
@@ -123,18 +129,14 @@ func _ready() -> void:
 	logo.custom_minimum_size = Vector2(170, 160)
 	rail.add_child(logo)
 	rail.add_child(text("THE SHOP DESK", 12, AMBER))
-	var tabs := [["home", "Shop home"], ["parts", "Find a part"], ["diagnose", "Check a problem"], ["repair", "Repair help"], ["references", "Manuals & diagrams"], ["fabricate", "Fabrication"], ["parts_list", "My parts list"], ["calculators", "Shop calculators"], ["equipment", "Equipment"], ["bills", "Bills to pay"], ["invoices", "Invoices to collect"]]
+	var tabs := [["home", "Ask GopherTech"], ["saved", "Saved Jobs"], ["tools", "Tools"]]
 	for tab in tabs:
 		var key: String = tab[0]
 		var button := action(tab[1], func(): show_page(key))
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		rail.add_child(button)
 		navigation[key] = button
-		if key == "references":
-			rail.add_child(action("My shop questions", func():
-				show_page("references")
-				page_scroll.call_deferred("ensure_control_visible", reference_desk.question_notes)
-			))
+	rail.add_child(text("REFERENCE MODE\nAI is unavailable.\nNo paid API calls.", 13, MUTED))
 	rail.add_child(text("HAWKLABS\nBuilt for hands-on work.", 13, MUTED))
 	var main := VBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -154,6 +156,15 @@ func _ready() -> void:
 	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(stack)
 	build_home()
+	make_page("saved")
+	var tools := make_page("tools")
+	tool_picker = OptionButton.new()
+	tool_picker.custom_minimum_size.y = 50
+	for choice in TOOL_CHOICES: tool_picker.add_item(choice[1])
+	tool_picker.item_selected.connect(func(index: int): show_page(TOOL_CHOICES[index][0]))
+	tools.add_child(tool_picker)
+	tool_mount = VBoxContainer.new()
+	tools.add_child(tool_mount)
 	for key in ["parts", "diagnose", "repair", "fabricate"]:
 		build_research(key)
 	build_parts_list()
@@ -172,9 +183,22 @@ func _ready() -> void:
 		var finance = load("res://finance_dashboard.gd").new()
 		finance.kind = "payable" if key == "bills" else "receivable"
 		page.add_child(finance)
-	for key in pages:
+	for choice in TOOL_CHOICES:
+		pages[choice[0]].visible = false
+		tool_mount.add_child(pages[choice[0]])
+	for key in ["home", "saved", "tools"]:
 		pages[key].visible = false
 		stack.add_child(pages[key])
+	job_workspace.saved_view.reparent(pages["saved"])
+	job_workspace.saved_view.visible = true
+	job_workspace.job_loaded.connect(on_job_loaded)
+	job_workspace.ask_button.add_theme_stylebox_override("normal", style(Color("593d1e"), AMBER))
+	job_workspace.answer_ready.connect(func(): page_scroll.set_deferred("scroll_vertical", int(page_scroll.get_v_scroll_bar().max_value)))
+	job_workspace.save_notice.connect(func(value: String): parts_message.text = value)
+	reference_desk.question_notes.text_changed.connect(func():
+		if not syncing_job: job_workspace.notes.text = reference_desk.question_notes.text
+	)
+	reference_desk.document_loaded.connect(func(url: String): job_workspace.open_reference(url))
 	resized.connect(adapt_layout)
 	adapt_layout()
 	show_page("home")
@@ -186,54 +210,35 @@ func adapt_layout() -> void:
 func show_page(key: String) -> void:
 	if not pages.has(key):
 		return
+	if key not in ["home", "saved", "tools"]:
+		active_tool = key
+		for index in range(TOOL_CHOICES.size()):
+			if TOOL_CHOICES[index][0] == key: tool_picker.select(index)
+		key = "tools"
 	active_page = key
 	page_scroll.set_deferred("scroll_vertical", 0)
-	for name in pages:
-		pages[name].visible = name == key
+	for name in ["home", "saved", "tools"]: pages[name].visible = name == key
+	for choice in TOOL_CHOICES: pages[choice[0]].visible = choice[0] == active_tool
 	for name in navigation:
 		navigation[name].add_theme_color_override("font_color", AMBER if name == key else Color("edf2f7"))
-	var titles := {"home": "What are we working on?", "parts": "Find the right part.", "diagnose": "Start with what you know.", "repair": "Find the next repair step.", "fabricate": "Turn an idea into a clear brief.", "parts_list": "Your parts counter.", "calculators": "Keep the numbers simple.", "equipment": "Your equipment desk.", "bills": "Keep track of bills.", "invoices": "Keep track of invoices."}
-	page_title.text = "Your reference desk." if key == "references" else titles[key]
-	page_hint.text = "Quick help. No equipment profile required." if key in ["home", "parts", "diagnose", "repair", "fabricate"] else "Your existing workshop tools, close at hand."
+	page_title.text = {"home":"What are we working on?", "saved":"Saved Jobs", "tools":"Tools"}[key]
+	page_hint.text = "Ask naturally. No equipment profile needed." if key == "home" else "Continue a job." if key == "saved" else "Your existing workshop tools and records."
+	if key == "saved": job_workspace.refresh_jobs()
 
 func build_home() -> void:
 	var home := make_page("home")
-	var hero := PanelContainer.new()
-	hero.custom_minimum_size.y = 215
-	hero.clip_contents = true
-	hero.add_theme_stylebox_override("panel", style(Color("18212b"), Color("65492b")))
-	home.add_child(hero)
-	var photo := TextureRect.new()
-	photo.texture = load("res://assets/workshop.png")
-	photo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	photo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	photo.modulate = Color(0.40, 0.44, 0.49)
-	hero.add_child(photo)
-	var words := VBoxContainer.new()
-	words.add_theme_constant_override("separation", 12)
-	hero.add_child(words)
-	words.add_child(text("LESS HUNTING. MORE FIXING.", 12, AMBER))
-	words.add_child(text("A good day starts\nwith the right next step.", 30))
-	words.add_child(text("Find parts, research a problem, or plan the job.\nStart here. Keep the paperwork for later.", 16))
-	home.add_child(text("PICK A JOB", 13, AMBER))
-	tile_grid = GridContainer.new()
-	tile_grid.columns = 2
-	tile_grid.add_theme_constant_override("h_separation", 14)
-	tile_grid.add_theme_constant_override("v_separation", 14)
-	home.add_child(tile_grid)
-	var tiles := [["parts", "01   FIND A PART", "Part numbers, diagrams & supplier searches"], ["diagnose", "02   CHECK A PROBLEM", "Describe the symptoms. Organize the clues."], ["repair", "03   REPAIR HELP", "Find manuals, procedures & service information"], ["fabricate", "04   FABRICATION HELP", "Capture dimensions, materials & the job brief"]]
-	for tile in tiles:
-		var key: String = tile[0]
-		var box := card(tile_grid)
-		box.get_parent().size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		box.add_child(action(tile[1], func(): show_page(key), true))
-		box.add_child(text(tile[2], 14, MUTED))
-	var footer := card(home)
-	footer.add_child(text("Already know what you need?", 19))
-	footer.add_child(text("Build a parts list or use the fuel-mix and unit calculators. Equipment and business records are optional.", 15, MUTED))
-	footer.add_child(action("Open shop calculators", func(): show_page("calculators")))
-	footer.add_child(action("Open manuals & diagrams", func(): show_page("references")))
-	home.add_child(text("Read manufacturer references inside the app. Paid AI is paused. No purchasing or paid API calls are enabled.", 13, MUTED))
+	job_workspace = load("res://job_workspace.gd").new()
+	home.add_child(job_workspace)
+
+func on_job_loaded(value: Dictionary) -> void:
+	syncing_job = true
+	parts.clear()
+	for entry in value.get("parts", []): parts.append(str(entry))
+	render_parts()
+	reference_desk.question_notes.text = value.get("notes", "")
+	syncing_job = false
+	if value.is_empty() or (active_page == "saved" and job_workspace.operation == "open"):
+		show_page("home")
 
 func build_research(key: String) -> void:
 	var page := make_page(key)
@@ -359,7 +364,7 @@ func build_parts_list() -> void:
 	var page := make_page("parts_list")
 	var box := card(page)
 	box.add_child(text("Find the part. Check the fit. Keep the details.", 22))
-	box.add_child(text("Add items from Find a part, then copy the list for a supplier. This list is kept only while the app is open. No orders are placed and no stock or prices are checked.", 15, MUTED))
+	box.add_child(text("Add items from Find a part, then copy the list for a supplier. The list is saved with your current job when the backend is connected. No orders are placed and no stock or prices are checked.", 15, MUTED))
 	parts_view = ItemList.new()
 	parts_view.custom_minimum_size.y = 240
 	box.add_child(parts_view)
@@ -380,6 +385,7 @@ func build_parts_list() -> void:
 			return
 		parts.remove_at(selected[0])
 		render_parts()
+		job_workspace.save_state({"parts":parts.duplicate()})
 	))
 
 func add_part() -> void:
@@ -394,13 +400,14 @@ func add_part() -> void:
 		return
 	parts.append(entry)
 	render_parts()
+	job_workspace.save_state({"parts":parts.duplicate()})
 	research_forms["parts"]["message"].text = "Added to My parts list. No order has been placed."
 
 func render_parts() -> void:
 	parts_view.clear()
 	for entry in parts:
 		parts_view.add_item(entry.get_slice("\n", 0))
-	parts_message.text = "%d items in this session. Copy the list before closing the app." % parts.size()
+	parts_message.text = "%d parts in the current job. Save status is shown on Ask GopherTech." % parts.size()
 
 func build_calculators() -> void:
 	var page := make_page("calculators")

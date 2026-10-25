@@ -32,6 +32,8 @@ def initialize_database():
         """)
         from finance import initialize_finance
         initialize_finance(connection)
+        from jobs import initialize_jobs
+        initialize_jobs(connection)
         connection.commit()
 
 

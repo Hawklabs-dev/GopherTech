@@ -15,7 +15,9 @@ func run() -> void:
 	root.add_child(dashboard)
 	await process_frame
 	check(dashboard.active_page == "home", "home is the entry point")
-	check(dashboard.pages.size() == 11, "all shop, reference and legacy pages exist")
+	check(dashboard.pages.size() == 13, "three main pages preserve all ten tools")
+	check(dashboard.navigation.size() == 3, "only three main navigation choices")
+	check(dashboard.job_workspace.question != null, "main screen has a large question input")
 	check(dashboard.pages["home"].visible, "home starts visible")
 	check(not dashboard.pages["equipment"].visible, "equipment registration is optional")
 	for key in dashboard.navigation:
@@ -23,8 +25,8 @@ func run() -> void:
 		check(dashboard.active_page == key, "navigation opens " + key)
 		var visible_pages := 0
 		for page in dashboard.pages.values():
-			visible_pages += int(page.visible)
-		check(visible_pages == 1, "only one page visible")
+			visible_pages += int(page.is_visible_in_tree())
+		check(visible_pages == (2 if key == "tools" else 1), "only selected main page and tool are visible")
 	for key in ["parts", "diagnose", "repair", "fabricate"]:
 		check(not dashboard.prepare_research(key), "blank request blocked")
 		dashboard.research_forms[key]["inputs"]["task"].text = "Carburetor & gasket #123"
@@ -46,7 +48,7 @@ func run() -> void:
 	check("Engine manual" in desk.reader.text, "failed reference load preserves previous text")
 	desk.question_notes.text = "Keep my question"
 	dashboard.open_research("parts")
-	check(dashboard.active_page == "references", "research stays inside app")
+	check(dashboard.active_page == "tools" and dashboard.active_tool == "references", "research stays inside Tools")
 	check(desk.question_notes.text == "Keep my question", "new research does not overwrite questions")
 	desk.request_node.cancel_request()
 	desk.set_busy(false)
@@ -73,12 +75,9 @@ func run() -> void:
 	dashboard.mix_ratio.text = "0"
 	dashboard.calculate_mix()
 	check("Enter" in dashboard.mix_result.text, "zero ratio rejected")
-	dashboard.size.x = 800
-	dashboard.adapt_layout()
-	check(dashboard.tile_grid.columns == 1, "narrow layout stacks actions")
-	dashboard.size.x = 1100
-	dashboard.adapt_layout()
-	check(dashboard.tile_grid.columns == 2, "wide layout uses two columns")
+	for choice in dashboard.TOOL_CHOICES:
+		dashboard.show_page(choice[0])
+		check(dashboard.pages[choice[0]].is_visible_in_tree(), "existing tool remains accessible: " + choice[0])
 	dashboard.show_page("home")
 	var screenshot := OS.get_environment("GOPHERTECH_SCREENSHOT")
 	if not screenshot.is_empty():

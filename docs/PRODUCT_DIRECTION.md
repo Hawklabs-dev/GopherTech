@@ -27,3 +27,10 @@ application capabilities as both evolve.
   a manufacturer reference directory and document reader, not whole-web search.
 - Parts tools find and organize information; do not implement automatic buying.
 - A question notebook must not be presented as a connected AI assistant.
+- The prototype has three main choices: Ask GopherTech, Saved Jobs, Tools. Start
+  with one question field and one Ask button; keep category selection in Tools.
+- Persist conversations, job context, notes, source references and parts in the
+  existing SQLite approach. Never present unsaved changes as saved.
+- Reference-mode routing and checklists are labelled as rules, not AI answers.
+- Proposed reference locations are not verified documents or compatibility
+  matches. Missing and unsupported documents must be reported explicitly.

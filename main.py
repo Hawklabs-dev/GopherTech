@@ -146,3 +146,6 @@ app.include_router(finance_router)
 
 from research import router as research_router
 app.include_router(research_router)
+
+from jobs import router as jobs_router
+app.include_router(jobs_router)

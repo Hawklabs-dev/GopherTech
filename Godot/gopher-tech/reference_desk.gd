@@ -2,6 +2,7 @@ extends VBoxContainer
 ## No browser launches, paid APIs or automatic purchases.
 
 signal focus_requested(control: Control)
+signal document_loaded(url: String)
 
 var api_url := "http://127.0.0.1:8000"
 var request_node: HTTPRequest
@@ -129,7 +130,7 @@ func _ready() -> void:
 		DisplayServer.clipboard_set(question_notes.text + "\n\nReference: " + document_url)
 		message.text = "Your questions and source copied. No AI request was made."
 	)
-	label("Questions and reader state last for this session only. Copy anything you need before closing.", 14)
+	label("Questions are saved as current-job notes when the backend is connected. Read references are saved with that job.", 14)
 	request_node = HTTPRequest.new()
 	request_node.timeout = 30.0
 	request_node.body_size_limit = 16 * 1024 * 1024
@@ -262,6 +263,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		page_caption.text = "No PDF page loaded."
 		message.text = "Reference loaded in app. Confirm the exact model and document applicability."
 		focus_requested.emit(reader)
+		document_loaded.emit(document_url)
 	elif operation == "page":
 		if not data.get("png_base64") is String:
 			message.text = "The page image was not available."

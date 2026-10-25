@@ -151,6 +151,7 @@ class ReferenceHTML(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.url, self.text, self.links = url, [], []
         self.hidden, self.anchor = 0, None
+        self.row_text, self.row_urls = None, []
 
     def handle_starttag(self, tag, attrs):
         if tag in ('script', 'style', 'noscript', 'svg'):
@@ -162,6 +163,8 @@ class ReferenceHTML(HTMLParser):
         if tag == 'a':
             href = dict(attrs).get('href', '')
             self.anchor = (urljoin(self.url, href), []) if href else None
+        if tag == 'tr':
+            self.row_text, self.row_urls = [], []
 
     def handle_endtag(self, tag):
         if tag in ('script', 'style', 'noscript', 'svg'):
@@ -170,6 +173,8 @@ class ReferenceHTML(HTMLParser):
             url, label = self.anchor
             try:
                 url = approved_url(url)
+                if self.row_text is not None:
+                    self.row_urls.append(url)
                 title = ' '.join(' '.join(label).split()) or urlsplit(url).path.rsplit('/', 1)[-1]
                 if title.lower() in ('download', 'pdf', 'view', 'manual'):
                     title += ' — ' + urlsplit(url).path.rsplit('/', 1)[-1]
@@ -178,12 +183,20 @@ class ReferenceHTML(HTMLParser):
             except HTTPException:
                 pass
             self.anchor = None
+        if tag == 'tr' and self.row_text is not None:
+            row = ' '.join(' '.join(self.row_text).split())[:500]
+            for link in self.links:
+                if link['url'] in self.row_urls:
+                    link['applicability'] = (link.get('applicability', '') + ' | ' + row).strip(' |')[:1200]
+            self.row_text = None
 
     def handle_data(self, data):
         if not self.hidden:
             self.text.append(data)
             if self.anchor:
                 self.anchor[1].append(data)
+            if self.row_text is not None:
+                self.row_text.append(data)
 
 
 @router.post('/sources')
