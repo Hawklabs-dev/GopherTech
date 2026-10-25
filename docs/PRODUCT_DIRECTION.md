@@ -21,6 +21,10 @@ application capabilities as both evolve.
 
 ## Owner decisions
 
+- The Shop Buddy mission is the current direction: ASK → FIND → ANALYZE →
+  ANSWER → REMEMBER. Milestone 1 is interface-only; stop for owner testing and
+  explicit approval before advancing. See `SHOP_BUDDY_MILESTONES.md`.
+
 - Paid API setup and calls are paused until the owner agrees to a budget or
   authorizes them when customers are paying. Do not silently enable paid services.
 - Research should stay inside the application. The current no-cost increment is

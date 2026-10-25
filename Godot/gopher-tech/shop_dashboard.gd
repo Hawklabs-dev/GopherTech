@@ -130,7 +130,7 @@ func _ready() -> void:
 	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(brand)
 	brand.add_child(text("GopherTech", 24, AMBER))
-	brand.add_child(text("Less clicking. More fixing.", 13, MUTED))
+	brand.add_child(text("Figure it out. Figure it right. Get it fixed.", 13, MUTED))
 	navigation = {"home":"Ask GopherTech", "saved":"Saved conversations", "tools":"Tools"}
 	menu_button = MenuButton.new()
 	menu_button.text = "Menu"
@@ -220,11 +220,12 @@ func show_page(key: String) -> void:
 			if TOOL_CHOICES[index][0] == key: tool_picker.select(index)
 		key = "tools"
 	active_page = key
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if key == "tools" else ScrollContainer.SCROLL_MODE_DISABLED
 	page_scroll.set_deferred("scroll_vertical", 0)
 	for name in ["home", "saved", "tools"]: pages[name].visible = name == key
 	for choice in TOOL_CHOICES: pages[choice[0]].visible = choice[0] == active_tool
-	page_title.text = {"home":"What are we working on?", "saved":"Saved Jobs", "tools":"Tools"}[key]
-	page_hint.text = "Ask. Find. Answer. Remember." if key == "home" else "Your saved findings and conversations." if key == "saved" else "Existing tools and records."
+	page_title.text = {"home":"What are we working on?", "saved":"Saved conversations", "tools":"Tools"}[key]
+	page_hint.text = "Your shop buddy. Start with a question." if key == "home" else "Your saved findings and conversations." if key == "saved" else "Existing tools and records."
 	if key == "saved": job_workspace.refresh_jobs()
 
 func build_home() -> void:

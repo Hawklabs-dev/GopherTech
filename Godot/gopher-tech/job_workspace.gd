@@ -117,13 +117,13 @@ func _ready() -> void:
 	saved_view.add_theme_constant_override("separation", 14)
 	saved_view.visible = false
 	add_child(saved_view)
-	label(saved_view, "Reopen a job to continue its questions, notes and references.")
+	label(saved_view, "Pick up a conversation, with its notes and saved references.")
 	job_list = ItemList.new()
 	job_list.custom_minimum_size.y = 240
 	job_list.item_activated.connect(func(index: int): open_job(jobs[index]["id"]))
 	saved_view.add_child(job_list)
 	var open := Button.new()
-	open.text = "Open selected job"
+	open.text = "Continue selected conversation"
 	open.custom_minimum_size.y = 46
 	open.pressed.connect(func():
 		var selected := job_list.get_selected_items()
@@ -131,11 +131,11 @@ func _ready() -> void:
 	)
 	saved_view.add_child(open)
 	var fresh := Button.new()
-	fresh.text = "Start a new job"
+	fresh.text = "New conversation"
 	fresh.custom_minimum_size.y = 46
 	fresh.pressed.connect(new_job)
 	saved_view.add_child(fresh)
-	label(saved_view, "Current job notes — saved automatically", 18)
+	label(saved_view, "Conversation notes — saved automatically", 18)
 	notes = TextEdit.new()
 	notes.placeholder_text = "Observations, measurements and things already checked"
 	notes.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
@@ -216,7 +216,7 @@ func new_job() -> void:
 	applying = true
 	notes.text = ""
 	applying = false
-	conversation.text = "Start a new question. A new job is saved when you ask."
+	conversation.text = "Ask a question to start a saved conversation."
 	document_panel.visible = false
 	job_loaded.emit(job)
 	set_status("New job • Reference mode (not AI).")

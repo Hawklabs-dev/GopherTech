@@ -2,11 +2,27 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
+## Shop Buddy — Milestone 1 review
+
+The owner acceptance gate is Milestone 1 only. The current interface has a compact
+branded header, one question box, one Ask action and a small **Menu** for history
+and existing tools. Longer reply details expand on demand; safety text remains
+visible. The primary layout adapts to a phone-sized portrait viewport.
+
+Restart `./run_backend.sh`, press F5 in Godot, and try the interface before
+advancing. AI is still unavailable; this milestone only connects the existing
+reference-mode backend. Photo attachment and mobile platform export packages
+are not implemented. Later research/provider work is preserved but parked.
+
+```bash
+godot --headless --path Godot/gopher-tech --script res://milestone_one_smoke.gd
+```
+
 ## Question-first prototype
 
 F5 opens a simple screen with the GopherTech logo, **What are we working on?**,
 one large question box, **Ask GopherTech**, and the conversation below.
-There are only three main navigation choices:
+The compact Menu contains three navigation choices:
 
 - **Ask GopherTech:** type a question, answer a relevant follow-up, and open
   suggested manufacturer references inside the conversation screen.
