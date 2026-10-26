@@ -87,3 +87,15 @@ class RetrievalTests(unittest.TestCase):
         corrected=jobs.route_question(full,'Actually GCACK1000003')
         self.assertEqual(corrected['serial'],'GCACK1000003')
         self.assertEqual(corrected['task_question'],first['task_question'])
+
+    def test_engine_name_alone_is_not_an_answer_to_technical_question(self):
+        pdf=dict(url='https://engines.honda.com/fixture.pdf',text='Honda GX160 owner information. This fixture does not contain the requested technical procedure.')
+        with patch('local_ai.select',return_value=None):
+            answer=retrieval.extract(pdf,'Honda GX160 oil drain',dict(brand='Honda',model='GX160'))
+        self.assertIn('could not verify',answer)
+
+    def test_long_paragraph_is_not_cut_into_an_incomplete_instruction(self):
+        pdf=dict(url='https://engines.honda.com/fixture.pdf',text='Oil drain '+('original fixture words '*80))
+        with patch('local_ai.select',return_value=None):
+            answer=retrieval.extract(pdf,'oil drain',{})
+        self.assertIn('could not verify',answer)

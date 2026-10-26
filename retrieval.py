@@ -46,14 +46,15 @@ def answer(context, question, sources):
 
 def extract(pdf, question, context):
     tokens = set(re.findall(r'[a-z]{3,}', question.lower())) - {'what','where','this','that','find','manual','honda','please','answer','quick','short','give','technical','version','explain','detail'}
+    tokens -= set(re.findall(r'[a-z]{3,}', context.get('brand', '').lower() + ' ' + context.get('model', '').lower()))
     if 'drain' in tokens: tokens.update(('oil','draining'))
     passages = []
     for page, text in enumerate(pdf.get('text','').split('\f'), 1):
         for paragraph in re.split(r'\n\s*\n', text):
             paragraph = re.sub(r'\s+', ' ', paragraph).strip()
             score = sum(token in paragraph.lower() for token in tokens)
-            if score and len(paragraph)>40:
-                passages.append(dict(text=paragraph[:1000], page=page, score=score))
+            if score and 40 < len(paragraph) <= 1000:
+                passages.append(dict(text=paragraph, page=page, score=score))
     passages = sorted(passages, key=lambda p:p['score'], reverse=True)[:8]
     ids = local_ai.select(question, passages)
     chosen = [passages[i] for i in ids] if ids is not None else passages[:1]

@@ -44,6 +44,15 @@ func run() -> void:
 	await process_frame
 	await create_timer(0.3).timeout
 	check(shop.page_scroll.scroll_vertical >= 0, "answer scrolling completes without errors")
+	work.show_document({"url":"https://engines.honda.com/fixture.pdf", "format":"pdf", "text":"Fixture page one\fFixture page two", "links":[]})
+	check("Next PDF page" in work.document_reader.text, "PDF text retains visible page boundaries")
+	check(work.document_reader.scroll_vertical == 0, "new document starts at the beginning")
+	var page_image := Image.create(600, 900, false, Image.FORMAT_RGB8)
+	work.pdf_image.texture = ImageTexture.create_from_image(page_image)
+	work.pdf_image.visible = true
+	await process_frame
+	work.fit_pdf_page()
+	check(absf(work.pdf_image.custom_minimum_size.y - work.pdf_image.size.x * 1.5) < 1.0, "PDF height follows its aspect ratio rather than a fixed desktop height")
 	for key in shop.navigation:
 		shop.menu_button.get_popup().id_pressed.emit(shop.navigation.keys().find(key))
 		check(shop.active_page == key, "menu opens " + key)

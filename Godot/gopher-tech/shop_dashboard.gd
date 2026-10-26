@@ -194,6 +194,7 @@ func _ready() -> void:
 	job_workspace.job_loaded.connect(on_job_loaded)
 	job_workspace.ask_button.add_theme_stylebox_override("normal", style(Color("593d1e"), AMBER))
 	job_workspace.answer_ready.connect(scroll_to_answer)
+	job_workspace.reference_ready.connect(scroll_to_reference)
 	job_workspace.save_notice.connect(func(value: String): parts_message.text = value)
 	reference_desk.question_notes.text_changed.connect(func():
 		if not syncing_job: job_workspace.notes.text = reference_desk.question_notes.text
@@ -478,3 +479,12 @@ func scroll_to_answer() -> void:
 	target = clampf(target, 0.0, maxf(0.0, bar.max_value - bar.page))
 	var motion := create_tween()
 	motion.tween_property(page_scroll, "scroll_vertical", int(target), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func scroll_to_reference(control: Control) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if active_page != "home" or not is_instance_valid(control): return
+	var bar := page_scroll.get_v_scroll_bar()
+	var target := clampf(page_scroll.scroll_vertical + control.global_position.y - page_scroll.global_position.y - 12.0, 0.0, maxf(0.0, bar.max_value - bar.page))
+	create_tween().tween_property(page_scroll, "scroll_vertical", int(target), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)

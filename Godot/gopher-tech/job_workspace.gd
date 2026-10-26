@@ -4,6 +4,7 @@ extends VBoxContainer
 signal job_loaded(job: Dictionary)
 signal save_notice(value: String)
 signal answer_ready
+signal reference_ready(control: Control)
 
 var saved_view: VBoxContainer
 var question: TextEdit
@@ -99,6 +100,7 @@ func _ready() -> void:
 	document_reader.editable = false
 	document_reader.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	document_reader.custom_minimum_size.y = 350
+	document_reader.scroll_past_end_of_file = false
 	document_panel.add_child(document_reader)
 	document_links = rich(document_panel, 30)
 	pdf_controls = HBoxContainer.new()
@@ -117,7 +119,8 @@ func _ready() -> void:
 	pdf_image = TextureRect.new()
 	pdf_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	pdf_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	pdf_image.custom_minimum_size.y = 780
+	pdf_image.custom_minimum_size.y = 400
+	pdf_image.resized.connect(fit_pdf_page)
 	pdf_image.visible = false
 	document_panel.add_child(pdf_image)
 	saved_view = VBoxContainer.new()
@@ -343,7 +346,9 @@ func on_link(meta: Variant) -> void:
 
 func show_document(value: Dictionary) -> void:
 	document = value
-	document_reader.text = value.get("text", "")
+	document_reader.text = value.get("text", "").replace("\f", "\n\n──────── Next PDF page ────────\n\n")
+	document_reader.scroll_vertical = 0
+	document_reader.scroll_horizontal = 0
 	document_header.text = escape(value.get("url", "")) + "\n" + escape(value.get("notice", "")) + "\n[url=external]Optional: open external copy[/url]"
 	document_links.text = "[b]Related document links[/b] — confirm model, serial range and region.\n"
 	var entries: Array = value.get("links", [])
@@ -354,6 +359,13 @@ func show_document(value: Dictionary) -> void:
 	pdf_controls.visible = value.get("format") == "pdf"
 	pdf_image.visible = false
 	pdf_page.value = 1
+	reference_ready.emit(document_panel)
+
+func fit_pdf_page() -> void:
+	if pdf_image.texture == null: return
+	var image_size := pdf_image.texture.get_size()
+	if image_size.x > 0:
+		pdf_image.custom_minimum_size.y = maxf(100.0, pdf_image.size.x * image_size.y / image_size.x)
 
 func on_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	busy = false
@@ -391,6 +403,8 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		if image.load_png_from_buffer(Marshalls.base64_to_raw(data.get("png_base64", ""))) == OK:
 			pdf_image.texture = ImageTexture.create_from_image(image)
 			pdf_image.visible = true
+			fit_pdf_page()
+			reference_ready.emit(pdf_image)
 			set_status("PDF page loaded.")
 		else:
 			set_status("The page image could not be verified. Previous content is kept.")
