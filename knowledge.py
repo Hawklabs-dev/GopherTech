@@ -28,7 +28,7 @@ def find(c, context, question, job_id):
     identity = context.get('model') or context.get('brand')
     findings, seen = [], set()
     asking_notes = any(term in question.lower() for term in ('my notes', 'saved notes', 'saved observations', 'my measurements', 'what did i record'))
-    if identity:
+    if context.get('model'):
         rows = c.execute('''SELECT id,job_id,url,title,document,updated_at FROM workshop_sources
                             WHERE document IS NOT NULL ORDER BY updated_at DESC LIMIT 100''').fetchall()
         for row in rows:

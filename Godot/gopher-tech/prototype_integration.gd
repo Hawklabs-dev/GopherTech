@@ -24,6 +24,11 @@ func run() -> void:
 	await idle(work)
 	check(shop.navigation.size() == 3, "only three main navigation choices")
 	if OS.get_environment("GOPHERTECH_REOPEN") == "1":
+		check(work.job.is_empty() and work.question.text.is_empty(), "restart opens a clean question workspace")
+		check(not work.jobs.is_empty(), "saved conversations remain available")
+		if not work.jobs.is_empty():
+			work.open_job(work.jobs[0]["id"])
+			await idle(work)
 		check(work.job.get("context", {}).get("model") == "GX160", "context survives app and backend restart")
 		check(work.job.get("notes") == "Measured mounting holes in mm", "notes survive restart")
 		check(work.job.get("parts", []).size() == 2 and "Fixture gasket" in str(work.job.get("parts")), "tool-added parts survive restart")
@@ -38,6 +43,24 @@ func run() -> void:
 				await idle(work)
 				check("GopherTech test diagram" in work.document_reader.text, "PDF text snapshot survives backend restart without fetching")
 				break
+		var saved_id: String = work.job["id"]
+		work.new_job()
+		check(work.job.is_empty() and work.source_records.is_empty() and not work.document_panel.visible, "new conversation clears machine, sources and document")
+		work.api_url = "http://127.0.0.1:1"
+		work.question.text = "Honda TRX200 spark plug"
+		work.ask()
+		await idle(work)
+		check(work.question.text == "Honda TRX200 spark plug" and not work.ask_button.disabled, "offline question preserves draft and unlocks Ask")
+		var retry_key: String = work.request_key
+		work.api_url = OS.get_environment("GOPHERTECH_API_URL")
+		work.ask()
+		await idle(work)
+		check(work.question.text.is_empty() and work.job.has("id"), "question succeeds after backend reconnect")
+		check(work.job.get("id", "") != saved_id, "fresh question does not inherit previous job")
+		var recovered_id: String = work.job.get("id", "")
+		work.send("question", "/jobs/question", {"question":"Honda TRX200 spark plug", "request_key":retry_key})
+		await idle(work)
+		check(work.job.get("id", "") == recovered_id and work.job.get("messages", []).size() == 2, "retry replays without duplicating conversation or messages")
 	else:
 		check(work.question != null and work.ask_button.text == "Ask GopherTech", "question is the main workflow")
 		work.question.text = "My tractor turns over but won't start."

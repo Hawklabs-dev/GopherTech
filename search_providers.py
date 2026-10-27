@@ -28,7 +28,7 @@ class SearchProvider(Protocol):
 class BrowserProvider:
     def plan(self, query):
         return SearchResponse('browser', 'browser_handoff', query,
-                              'Open this query in your browser. GopherTech cannot read, summarize or verify those search results.',
+                              'Browse this query inside GopherTech. Search results are not automatically read, summarized or verified.',
                               'https://www.google.com/search?' + urlencode({'q': query}))
 
     def search(self, query):
@@ -58,7 +58,7 @@ def provider() -> SearchProvider:
 
 
 def targeted_query(context, question):
-    identity = ' '.join(context.get(name, '') for name in ('brand', 'model'))
+    identity = ' '.join(context.get(name, '') for name in ('year', 'brand', 'model'))
     intent = context.get('intent')
     topic = context.get('document_kind', 'owner') + ' manual manufacturer' if intent == 'manual' else context.get('symptom', question) if intent == 'troubleshoot' else question
     return re.sub(r'\s+', ' ', (identity + ' ' + topic + ' ' + context.get('region', '')).strip())[:600]

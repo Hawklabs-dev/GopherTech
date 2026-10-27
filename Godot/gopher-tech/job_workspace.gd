@@ -22,6 +22,7 @@ var source_records: Array = []
 var document: Dictionary = {}
 var document_panel: VBoxContainer
 var document_reader: TextEdit
+var live_browser: VBoxContainer
 var document_links: RichTextLabel
 var document_header: RichTextLabel
 var pdf_controls: HBoxContainer
@@ -38,7 +39,6 @@ var request_key := ""
 var request_fingerprint := ""
 var create_key := ""
 var applying := false
-var expanded_details: Dictionary = {}
 var sources_expanded := false
 var submitted_question := ""
 var latest_answer_paragraph := 0
@@ -87,7 +87,17 @@ func _ready() -> void:
 	ask_button.custom_minimum_size.y = 54
 	ask_button.pressed.connect(ask)
 	add_child(ask_button)
-	status = label(self, "Source research · Your work saves locally.", 13)
+	var archive := Button.new()
+	archive.text = "Archive conversation & start new"
+	archive.pressed.connect(func():
+		if busy or not pending_state.is_empty() or not notes_timer.is_stopped():
+			flush_state()
+			set_status("Wait for saving to finish, then archive.")
+			return
+		if job.has("id"): send("archive", "/jobs/" + job["id"] + "/archive")
+	)
+	add_child(archive)
+	status = label(self, "Connecting to your local workspace…", 13)
 	conversation = rich(self, 160)
 	conversation.text = "Ask in your own words. I’ll keep the useful details with this conversation."
 	document_panel = VBoxContainer.new()
@@ -96,6 +106,20 @@ func _ready() -> void:
 	add_child(document_panel)
 	label(document_panel, "Reference document", 21)
 	document_header = rich(document_panel, 50)
+	live_browser = load("res://reference_browser.gd").new()
+	document_panel.add_child(live_browser)
+	live_browser.visible = false
+	live_browser.saved_text_requested.connect(func():
+		live_browser.visible = false
+		document_reader.visible = true
+		document_links.visible = true
+		document_header.text = "Saved text · [url=livepage]Return to live webpage[/url]"
+		if document.get("url", "") != live_browser.current_url:
+			document_reader.text = "No saved text is available for this page. Return to the live webpage to continue browsing."
+			document_links.visible = false
+		else:
+			document_reader.text = document.get("text", "").replace("\f", "\n\n──────── Next PDF page ────────\n\n")
+	)
 	document_reader = TextEdit.new()
 	document_reader.editable = false
 	document_reader.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
@@ -165,7 +189,7 @@ func _ready() -> void:
 	request_node.body_size_limit = 16 * 1024 * 1024
 	request_node.request_completed.connect(on_response)
 	add_child(request_node)
-	send("startup", "/jobs", {}, HTTPClient.METHOD_GET)
+	send("startup", "/jobs?include_archived=false", {}, HTTPClient.METHOD_GET)
 
 func set_status(value: String) -> void:
 	status.text = value
@@ -175,6 +199,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 	if busy: return
 	operation = kind
 	busy = true
+	request_node.timeout = 20.0 if kind == "question" else 5.0 if kind in ["startup", "list", "open", "state", "create", "archive"] else 45.0
 	ask_button.disabled = true
 	if kind == "question": ask_button.text = "Finding useful information…"
 	var error := request_node.request(api_url + path, ["Content-Type: application/json"], method, "" if method == HTTPClient.METHOD_GET else JSON.stringify(body))
@@ -224,6 +249,12 @@ func new_job() -> void:
 		flush_state()
 		return
 	job = {}
+	source_records = []
+	pending_reference = ""
+	pending_open = ""
+	create_key = ""
+	request_fingerprint = ""
+	submitted_question = ""
 	document = {}
 	question.text = ""
 	applying = true
@@ -231,8 +262,8 @@ func new_job() -> void:
 	applying = false
 	conversation.text = "Ask a question to start a saved conversation."
 	document_panel.visible = false
+	live_browser.reset()
 	job_loaded.emit(job)
-	expanded_details.clear()
 	sources_expanded = false
 	request_key = ""
 	question.grab_focus()
@@ -254,6 +285,7 @@ func flush_state() -> void:
 	send("state", "/jobs/" + job["id"] + "/state", in_flight_state, HTTPClient.METHOD_PUT)
 
 func open_reference(url: String) -> void:
+	if DisplayServer.get_name() != "headless": show_live_reference(url)
 	pending_reference = url
 	if not job.has("id"):
 		if create_key.is_empty(): create_key = key()
@@ -282,7 +314,7 @@ func apply_job(value: Dictionary) -> void:
 	if job.get("id", "") != value.get("id", ""):
 		document = {}
 		document_panel.visible = false
-		expanded_details.clear()
+		live_browser.reset()
 		sources_expanded = false
 	job = value
 	for name in pending_state: job[name] = pending_state[name]
@@ -293,44 +325,40 @@ func apply_job(value: Dictionary) -> void:
 	render_conversation()
 	job_loaded.emit(job)
 
-func brief_answer(value: String) -> String:
-	var paragraphs := value.split("\n\n", false)
-	if paragraphs.size() > 1 and paragraphs[0].begins_with("Keeping "):
-		paragraphs.remove_at(0)
-	if paragraphs.is_empty(): return value
-	var selected := PackedStringArray([paragraphs[0]])
-	for paragraph in paragraphs.slice(1):
-		if paragraph.begins_with("Next ") or paragraph.begins_with("No matching ") or "Do not " in paragraph or "do not " in paragraph or paragraph.begins_with("Keep ignition") or "not verified engineering" in paragraph or paragraph.begins_with("Page ") or paragraph.begins_with("Source:") or "applicability" in paragraph.to_lower() or paragraph.ends_with("?"):
-			selected.append(paragraph)
-	return "\n\n".join(selected)
-
 func render_conversation() -> void:
 	var transcript := ""
 	for entry in job.get("messages", []):
 		var id := str(entry["id"])
 		var content: String = entry["content"]
+		if entry["role"] == "assistant" and ("Page " in content and "Source:" in content):
+			content = "This older reply contains unverified PDF extracts. Open the original reference from saved job history before using it."
 		if entry["role"] == "assistant": latest_answer_paragraph = transcript.count("\n")
-		if entry["role"] == "assistant" and not expanded_details.get(id, false):
-			content = brief_answer(content)
-		transcript += "[color=#ffb347][b]%s[/b][/color]\n%s\n" % ["You" if entry["role"] == "user" else "GopherTech", escape(content)]
-		if entry["role"] == "assistant" and brief_answer(entry["content"]) != entry["content"]:
-			transcript += "[url=detail:%s][color=#a6b3c4]%s[/color][/url]\n" % [id, "Less detail" if expanded_details.get(id, false) else "Technical details"]
-		transcript += "\n"
+		if entry["role"] == "user" and not transcript.is_empty():
+			transcript += "[color=#536175]────────────────────────[/color]\n\n"
+		transcript += "[color=#ffb347][b]%s[/b][/color]\n%s\n\n" % ["You" if entry["role"] == "user" else "GopherTech", escape(content)]
+		for evidence in entry.get("evidence", []):
+			transcript += "[url=evidence:%s]View source: %s[/url]\n" % [evidence["url"], escape(evidence.get("title", "Reference"))]
+		if not entry.get("evidence", []).is_empty(): transcript += "\n"
 	if transcript.is_empty(): transcript = "Ask your question above to continue.\n\n"
 	if not source_records.is_empty():
-		transcript += "[url=sources]Sources & saved findings (%d)[/url]\n" % source_records.size()
+		transcript += "[url=sources]Job reference history (%d)[/url]\n" % source_records.size()
 	if sources_expanded:
 		for index in range(source_records.size()):
-			var entry: Dictionary = source_records[index]
-			transcript += "[url=source:%d]%s[/url] · %s\n" % [index, escape(entry["title"]), "saved copy · " + str(entry.get("updated_at", "")).substr(0, 10) if entry.get("read", false) else "unverified reference location"]
+			transcript += "[url=source:%d]%s[/url]\n" % [index, escape(source_records[index]["title"])]
+	var plan: Dictionary = job.get("research", {}).get("plan", {})
+	if plan.get("browser_url", "") != "":
+		transcript += "\n[url=websearch]Search the web for this question[/url]\nBrowse results inside GopherTech. Answers are not automatically read or verified.\n"
 	conversation.text = transcript
 
 func on_link(meta: Variant) -> void:
 	var value := str(meta)
-	if value.begins_with("detail:"):
-		var id := value.trim_prefix("detail:")
-		expanded_details[id] = not expanded_details.get(id, false)
-		render_conversation()
+	if value == "websearch":
+		var url: String = job.get("research", {}).get("plan", {}).get("browser_url", "")
+		if not url.is_empty():
+			show_live_reference(url)
+			set_status("Web search opened inside GopherTech. Browse the results below; automatic answers from these results are not available yet.")
+	elif value.begins_with("evidence:"):
+		open_reference(value.trim_prefix("evidence:"))
 	elif value == "sources":
 		sources_expanded = not sources_expanded
 		render_conversation()
@@ -343,6 +371,9 @@ func on_link(meta: Variant) -> void:
 		if index >= 0 and index < entries.size(): open_reference(entries[index]["url"])
 	elif value == "external" and document.has("url"):
 		OS.shell_open(document["url"])
+	elif value == "livepage":
+		var url: String = live_browser.current_url if not live_browser.current_url.is_empty() else document.get("url", "")
+		if not url.is_empty(): show_live_reference(url)
 
 func show_document(value: Dictionary) -> void:
 	document = value
@@ -350,15 +381,33 @@ func show_document(value: Dictionary) -> void:
 	document_reader.scroll_vertical = 0
 	document_reader.scroll_horizontal = 0
 	document_header.text = escape(value.get("url", "")) + "\n" + escape(value.get("notice", "")) + "\n[url=external]Optional: open external copy[/url]"
+	if DisplayServer.get_name() != "headless" and value.get("format") != "pdf":
+		document_header.text += "\n[url=livepage]View live webpage here[/url]"
 	document_links.text = "[b]Related document links[/b] — confirm model, serial range and region.\n"
 	var entries: Array = value.get("links", [])
 	for index in range(entries.size()):
 		var entry: Dictionary = entries[index]
 		document_links.text += "[url=document:%d]%s[/url] %s\n" % [index, escape(entry.get("title", "Document")), escape(entry.get("applicability", ""))]
 	document_panel.visible = true
+	document_reader.visible = true
+	document_links.visible = true
+	if DisplayServer.get_name() != "headless" and value.get("format") != "pdf":
+		show_live_reference(value.get("url", ""))
+	else:
+		live_browser.reset()
 	pdf_controls.visible = value.get("format") == "pdf"
 	pdf_image.visible = false
 	pdf_page.value = 1
+	reference_ready.emit(document_panel)
+
+func show_live_reference(url: String) -> void:
+	document_panel.visible = true
+	document_header.text = "[url=livepage]Live webpage[/url] · Click links and scroll within the page."
+	var opened: bool = live_browser.open_url(url)
+	document_reader.visible = not opened
+	document_links.visible = not opened
+	pdf_controls.visible = false
+	pdf_image.visible = false
 	reference_ready.emit(document_panel)
 
 func fit_pdf_page() -> void:
@@ -393,11 +442,13 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 	if operation in ["startup", "list"]:
 		jobs = data.get("jobs", [])
 		job_list.clear()
-		for entry in jobs: job_list.add_item(entry["title"] + "  •  " + entry["updated_at"].substr(0, 10))
-		set_status("Conversations save to this computer. Research uses available sources.")
-		if operation == "startup" and not jobs.is_empty():
-			open_job(jobs[0]["id"])
-			return
+		for entry in jobs: job_list.add_item(("[Archived] " if entry.get("archived_at") != null else "") + entry["title"] + "  •  " + entry["updated_at"].substr(0, 10))
+		set_status("Ready · Ask a question. Reference mode; automatic web answers are not available.")
+		if operation == "startup":
+			question.grab_focus()
+	elif operation == "archive":
+		new_job()
+		set_status("Conversation archived in the database with messages, notes, parts and saved references.")
 	elif operation == "pdf":
 		var image := Image.new()
 		if image.load_png_from_buffer(Marshalls.base64_to_raw(data.get("png_base64", ""))) == OK:
@@ -422,6 +473,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 			if question.text.strip_edges() == submitted_question: question.text = ""
 			request_key = ""
 			document_panel.visible = false
+			live_browser.reset()
 			answer_ready.emit()
 		if operation == "state":
 			in_flight_state.clear()

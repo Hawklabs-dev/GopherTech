@@ -16,6 +16,7 @@ build/
 builds/
 dist/
 exports/
+Godot/gopher-tech/addons/godot_cef/bin/
 *.pck
 
 # Local SQLite data and associated files

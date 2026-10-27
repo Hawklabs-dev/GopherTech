@@ -1,8 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://blapipbo8tsal"]
 
-[ext_resource type="Script" path="res://shop_dashboard.gd" id="1"]
+[ext_resource type="Script" uid="uid://bcocnyrg1l8hg" path="res://shop_dashboard.gd" id="1"]
 
-[node name="ShopDashboard" type="Control"]
+[node name="ShopDashboard" type="Control" unique_id=67715878]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

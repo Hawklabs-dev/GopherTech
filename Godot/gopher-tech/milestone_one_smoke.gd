@@ -22,18 +22,16 @@ func run() -> void:
 	check(work.question is TextEdit and work.ask_button.text == "Ask GopherTech", "one obvious input and ask action")
 	check(shop.menu_button.get_popup().item_count == 3, "history and tools live in a compact menu")
 	work.apply_job({"id":"ui-fixture", "notes":"", "parts":[], "sources":[{"title":"Original UI fixture source","url":"https://engines.honda.com/fixture","read":false}], "messages":[{"id":1,"role":"assistant","content":"Check the identification plate first.\n\nExtra technical explanation.\n\nDo not bypass safety interlocks.\n\nWhat model is it?"}]})
-	check(not "Extra technical" in work.conversation.text, "long detail starts collapsed")
-	check("Do not bypass" in work.conversation.text, "important safety text remains visible")
-	work.on_link("detail:1")
-	check("Extra technical" in work.conversation.text, "technical details expand on request")
-	work.on_link("detail:1")
-	check(not "Extra technical" in work.conversation.text, "technical details collapse again")
-	check(not "Original UI fixture source" in work.conversation.text, "supporting sources start collapsed")
+	check(not "Technical details" in work.conversation.text, "routine technical links removed")
+	check("Do not bypass" in work.conversation.text, "safety text remains visible")
+	check(not "Original UI fixture source" in work.conversation.text, "job reference history starts collapsed")
 	work.on_link("sources")
-	check("Original UI fixture source" in work.conversation.text, "supporting sources remain accessible")
-	var sourced := "Page 7: Original fixture finding.\n\nLocal AI selected this fixture. Exact source extracts; applicability still needs confirmation.\n\nSource: https://engines.honda.com/fixture\nCheck region and follow all precautions."
-	var brief: String = work.brief_answer(sourced)
-	check("Page 7" in brief and "Source:" in brief and "precautions" in brief, "finding, citation and precautions stay visible without expanding details")
+	check("Original UI fixture source" in work.conversation.text, "old job references remain accessible")
+	var sourced := "I could not verify the spark plug.\n\nWhat is the full model designation?"
+	work.apply_job({"id":"ui-fixture", "notes":"", "parts":[], "sources":[], "messages":[{"id":1,"role":"user","content":"GX160 manual"},{"id":2,"role":"assistant","content":"Reference found.","evidence":[{"title":"GX160 manual","url":"https://engines.honda.com/fixture"}]},{"id":3,"role":"user","content":"TRX200 spark plug"},{"id":4,"role":"assistant","content":sourced}]})
+	check(work.conversation.text.count("View source:") == 1, "only the supported exchange has a source action")
+	check(work.conversation.text.find("View source:") < work.conversation.text.find("TRX200 spark plug"), "old evidence stays with its exchange")
+	check("────────────────────────" in work.conversation.text, "exchanges have visible separation")
 	work.operation = "question"
 	work.submitted_question = "Original submitted question"
 	work.question.text = "A new draft typed while waiting"

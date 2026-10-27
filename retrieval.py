@@ -1,13 +1,45 @@
-"""Bounded public manufacturer retrieval; exact extracts, never invented specs."""
+"""Bounded manufacturer retrieval; unverified PDF text is never a technical answer."""
 import os
 import re
+import queue
+import threading
 from datetime import datetime, timezone
 from fastapi import HTTPException
 import research
-import local_ai
+
+
+LOOKUP_TIMEOUT = 8.0
+_lookup_slots = threading.BoundedSemaphore(2)
 
 
 def answer(context, question, sources):
+    """Bound interactive waiting even when DNS or a remote server stalls.
+
+    Workers only read documents. Timed-out results cannot later modify a job.
+    Limit outstanding workers so retries cannot accumulate unbounded threads.
+    """
+    if os.environ.get('GOPHERTECH_RESEARCH_NETWORK', '1') != '1':
+        return [], None
+    if not _lookup_slots.acquire(blocking=False):
+        return [], 'Manufacturer research is still busy. Your question is saved; try the reference again shortly.'
+    results = queue.Queue(maxsize=1)
+
+    def lookup():
+        try:
+            results.put(_answer(dict(context), question, sources))
+        except Exception:
+            results.put(([], 'Manufacturer research failed. No answer or specification has been verified.'))
+        finally:
+            _lookup_slots.release()
+
+    threading.Thread(target=lookup, daemon=True).start()
+    try:
+        return results.get(timeout=LOOKUP_TIMEOUT)
+    except queue.Empty:
+        return [], 'Manufacturer research timed out. No answer or specification has been verified. Your question is saved; retry the reference or use the web search link.'
+
+
+def _answer(context, question, sources):
     if os.environ.get('GOPHERTECH_RESEARCH_NETWORK', '1') != '1':
         return [], None
     if not context.get('model'):
@@ -17,7 +49,9 @@ def answer(context, question, sources):
     # Model libraries are discovery evidence, not proof that every linked manual fits.
     candidates = [s for s in sources if s.get('kind') == 'Model lookup'][:1]
     if not candidates:
-        return [], 'I do not yet have a readable source for this model. Your details are saved. No specification or procedure has been verified; manufacturer sites requiring interactive access may need the optional external source link.'
+        return [], ('I recognized ' + context['model'] + ', but automatic reference lookup does not cover this model. '
+                    'I cannot verify the requested answer from the sources available here.\n\n'
+                    'Use the web search link below to find the manufacturer service manual; confirm the full model, serial range and region before using a specification.')
     docs = []
     try:
         doc = research.document(research.DocumentRequest(url=candidates[0]['url']))
@@ -38,34 +72,27 @@ def answer(context, question, sources):
                 return stamp(docs, context), 'I retrieved the manufacturer listing, but could not match the reported serial number to one supported PDF. Please check the prefix and number against the listing below; no procedure or specification is verified.'
             return stamp(docs, context), 'I retrieved the manufacturer’s model manual listing. It contains several versions; I have not chosen one blindly. What is the complete serial prefix and number on the engine? Open Sources to read the listing here.'
         pdf = research.document(research.DocumentRequest(url=eligible[0]['url']))
-        docs.append(pdf)
-        return stamp(docs, context), extract(pdf, question, context)
+        reply = extract(pdf, question, context)
+        if 'does not establish a match' not in reply:
+            docs.append(pdf)
+        return stamp(docs, context), reply
     except (HTTPException, OSError, ValueError) as exc:
         return stamp(docs, context), 'The manufacturer lookup could not complete. No answer or specification has been verified. Saved references remain available; try again when connected. ' + ('The site refused or did not provide a supported document.' if isinstance(exc, HTTPException) else 'Network unavailable.')
 
 
 def extract(pdf, question, context):
-    tokens = set(re.findall(r'[a-z]{3,}', question.lower())) - {'what','where','this','that','find','manual','honda','please','answer','quick','short','give','technical','version','explain','detail'}
-    tokens -= set(re.findall(r'[a-z]{3,}', context.get('brand', '').lower() + ' ' + context.get('model', '').lower()))
-    if 'drain' in tokens: tokens.update(('oil','draining'))
-    passages = []
-    for page, text in enumerate(pdf.get('text','').split('\f'), 1):
-        for paragraph in re.split(r'\n\s*\n', text):
-            paragraph = re.sub(r'\s+', ' ', paragraph).strip()
-            score = sum(token in paragraph.lower() for token in tokens)
-            if score and 40 < len(paragraph) <= 1000:
-                passages.append(dict(text=paragraph, page=page, score=score))
-    passages = sorted(passages, key=lambda p:p['score'], reverse=True)[:8]
-    ids = local_ai.select(question, passages)
-    chosen = [passages[i] for i in ids] if ids is not None else passages[:1]
-    mode = 'Local AI selected these source passages' if ids is not None else 'Reference extracts (local AI unavailable)'
-    if not chosen:
-        return 'The manual was retrieved, but I could not verify an answer in its readable text. Open the saved manual below; diagrams may need the page viewer.'
-    if context.get('response_style') == 'quick': chosen = chosen[:1]
-    text = '\n\n'.join('Page '+str(p['page'])+': “'+p['text']+'”' for p in chosen)
-    text += '\n\n' + mode + '. Exact source extracts; applicability still needs confirmation.'
-    text += '\n\nSource: '+pdf['url']+'\nCheck region, variant and the full procedure before use. Secure the machine and follow all precautions in the manual.'
-    return text
+    model = context.get('model', '')
+    saved = pdf.get('saved_context', {})
+    normalize = lambda value: re.sub(r'[^a-z0-9]', '', str(value).lower())
+    body = pdf.get('text', '')
+    model_pattern = r'(?<![a-z0-9])' + r'[ -]*'.join(re.escape(c) for c in model.lower()) + r'(?![a-z0-9])'
+    if not model or (saved.get('model') and normalize(saved['model']) != normalize(model)) or not re.search(model_pattern, body.lower()):
+        return 'I could not verify an answer: this document does not establish a match to your machine.\n\nWhat is the full model designation on its identification label?'
+    # Keyword selection and PDF extraction do not establish a readable, verified instruction.
+    # Keep the original document available through evidence, never promote raw extracts.
+    return ('I found a reference for ' + model + ', but could not verify the answer in its readable text. '
+            'PDF text can mix columns; inspect the original page before using it.\n\n'
+            'Can you confirm the full model designation and serial number on the identification label?')
 
 def stamp(docs, context):
     for doc in docs:

@@ -41,7 +41,8 @@ class LocalResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(old['id'], new['id'])
         self.assertTrue(new['research']['local_checked'])
         self.assertFalse(new['research']['needs_online'])
-        self.assertIn('saved reference', new['messages'][-1]['content'])
+        self.assertIn('could not verify', new['messages'][-1]['content'])
+        self.assertEqual(new['messages'][-1]['evidence'][0]['url'], url)
         self.assertTrue(any(source['url'] == url and source['read'] for source in new['sources']))
         with patch.object(research, 'document', side_effect=AssertionError('Use the copied saved source')):
             status, cached = await self.request('POST', '/jobs/' + new['id'] + '/reference', dict(url=url))
@@ -87,6 +88,9 @@ class LocalResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan['results'], [])
         self.assertFalse(plan['results_retrieved'])
         self.assertIn('GX160', parse_qs(urlsplit(plan['browser_url']).query)['q'][0])
+        self.assertIn('inside GopherTech', plan['message'])
+        self.assertIn('inside GopherTech', job['messages'][-1]['content'])
+        self.assertNotIn('open in your browser', job['messages'][-1]['content'])
 
     async def test_unavailable_direct_provider_does_not_silently_fallback_or_call(self):
         with patch.dict(os.environ, GOPHERTECH_SEARCH_PROVIDER='api'):
@@ -109,3 +113,19 @@ class LocalResearchTests(unittest.IsolatedAsyncioTestCase):
         await self.ask('Find the manual for Honda GX160')
         second = await self.ask('Find the manual for Honda GX160')
         self.assertEqual(second['research']['findings'], [])
+
+    async def test_switching_same_brand_never_reuses_previous_manual_or_evidence(self):
+        old, url, _ = await self.saved_manual()
+        prior = await self.ask('Find the manual for Honda GX160', old['id'])
+        evidence = prior['messages'][-1]['evidence']
+        self.assertEqual(evidence[0]['url'], url)
+        new = await self.ask('2004 honda trx 200 atv, what type of sparkplug does it take?', old['id'])
+        self.assertEqual(new['context']['model'], 'TRX200')
+        self.assertEqual(new['context']['intent'], 'specification')
+        self.assertEqual(new['messages'][-1]['evidence'], [])
+        self.assertNotIn('GX160', new['messages'][-1]['content'])
+        self.assertEqual(new['messages'][-3]['evidence'], evidence)
+        self.assertFalse(any(f['kind'] == 'document' for f in new['research']['findings']))
+        with closing(jobs.connect()) as c:
+            reopened = jobs.get_job(c, new['id'])
+        self.assertEqual(reopened['messages'][-3]['evidence'], evidence)

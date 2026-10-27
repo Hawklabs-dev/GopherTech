@@ -2,12 +2,70 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
+For normal desktop use, run `./run_dashboard.sh`. It starts its own local backend
+and closes that backend when the app exits. F5 in the Godot editor still requires
+`./run_backend.sh` separately. Every app start opens a blank question workspace;
+continue older work explicitly through Menu → Saved Jobs.
+
+Interactive manufacturer lookup waits at most eight seconds before saving an
+explicit timeout reply. Outstanding lookups are bounded; late results do not
+rewrite saved answers. General web search opens inside the app and does not
+read or answer from search results. See `docs/QUESTION-READINESS-2026-10-27.md`
+for tested behavior and the remaining shop-readiness blocker.
+
+## Interactive reference webpages
+
+HTML references now open as live webpages inside the conversation's reference
+area, with Back, Forward, Reload, Stop, Saved text and Open externally controls.
+The conversation's **Search the web for this question** action also opens results
+in this embedded browser. Only the explicitly labeled external actions launch
+the system browser.
+Links and webpage scrolling work inside the app. Saved text is the locally
+archived extract; live browsing does not automatically archive subsequent pages
+or provide evidence for an answer. PDF references retain the saved text and
+original-page reader.
+
+The desktop browser uses [Godot CEF 2.1.0](https://github.com/dsh0416/godot-cef/releases/tag/v2.1.0).
+Restart the Godot editor once after adding it, then run F5 (with the backend
+running) or `./run_dashboard.sh`. The browser is created only when opening a
+reference, so startup remains a blank question workspace.
+
+Native browser files are installed locally and excluded from Git. To set up a
+new Linux x86_64 checkout (other platforms use the upstream release instructions):
+
+```bash
+.venv/bin/python tools/setup_browser.py
+godot --headless --editor --path Godot/gopher-tech --import
+```
+
+The explicit setup command downloads about 655 MiB and checks the pinned SHA-256
+before extracting only the current platform's runtime. No runtime download takes
+place at app startup. Without the runtime, saved text and external links remain
+available. Linux uses software webpage rendering to avoid driver-specific GPU
+interop requirements. Browser camera/microphone permissions and file dialogs
+are disabled; normal page JavaScript and HTTPS remain enabled.
+
+Live integration check (opens a disposable app window, no shop database writes):
+
+```bash
+godot --path Godot/gopher-tech --script res://browser_integration.gd
+```
+
+Verified on this Linux desktop with Godot 4.7.2: the real Honda owner-manual page
+renders inside the full app; pointer clicks reach page JavaScript; wheel events
+scroll the webpage without scrolling the conversation; Saved text and Return to
+live webpage switch correctly; resetting clears the browser. The live test
+passes with both the normal Vulkan renderer and OpenGL compatibility renderer.
+The 84 Python tests, prototype restart/recovery integration, reference/PDF
+integration and Milestone 1 interface smoke check also pass.
+
 ## Shop Buddy — Milestone 1 review
 
 The owner acceptance gate is Milestone 1 only. The current interface has a compact
 branded header, one question box, one Ask action and a small **Menu** for history
-and existing tools. Longer reply details expand on demand; safety text remains
-visible. The primary layout adapts to a phone-sized portrait viewport.
+and existing tools. Replies use visible exchange separators and evidence links attached to the
+answer that retrieved them. Raw PDF extracts are kept out of technical answers;
+source pages remain available for inspection. The primary layout adapts to a phone-sized portrait viewport.
 
 Restart `./run_backend.sh`, press F5 in Godot, and try the interface before
 advancing. AI is still unavailable; this milestone only connects the existing
@@ -309,3 +367,35 @@ and entry correction/reversal screens are future work. Existing entries cannot
 be edited or deleted through this first interface. It is not a full general
 ledger. The validation APIs used here are documented at:
 https://docs.pydantic.dev/latest/api/standard_library_types/
+
+## Conversation reference safeguards
+
+A newly identified model replaces the previous machine context. Spark-plug
+questions start a fresh specification lookup. Unknown machine identities do not
+reuse brand-only saved documents. Model matching is required before a retrieved
+PDF can be offered as evidence; extracted text alone does not verify a technical
+answer. The current reference engine returns a short limitation and one follow-up
+instead of promoting PDF passages to repair instructions.
+
+New replies save their evidence links with the message. Earlier replies retain
+those links when the machine changes or the job is reopened. Legacy job sources
+remain in collapsed **Job reference history**; their original message association
+cannot be reconstructed. Legacy raw PDF replies display a limitation in the UI
+while their stored conversation text remains intact.
+
+## Conversation archive and targeted web search
+
+Use **Archive conversation & start new** below Ask GopherTech to mark the
+current conversation archived in SQLite and clear the working screen. Messages,
+notes, parts and reference snapshots are preserved. Saved Jobs includes archived
+conversations with an `[Archived]` label; continuing with a new question makes
+one active again. Startup opens a clean question workspace; use Saved Jobs to resume
+a conversation explicitly. Existing jobs gain
+a nullable `archived_at` column on backend startup.
+
+Honda `TRX 200` and `200 TRX` are recognized as `TRX200`. New explicit questions
+replace the previous task while short identity follow-ups retain the task.
+When local evidence is insufficient, **Search the web for this question** opens
+a targeted query in the device browser. This is a browser handoff, not automatic
+result retrieval or deep research. Automatic general web search and synthesis
+are still unimplemented; no AI or paid search API has been enabled.

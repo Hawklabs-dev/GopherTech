@@ -36,6 +36,10 @@ def initialize_jobs(connection):
         id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL REFERENCES workshop_jobs(id),
         url TEXT NOT NULL, title TEXT NOT NULL, document TEXT,
         updated_at TEXT NOT NULL, UNIQUE(job_id, url))''')
+    if 'evidence' not in {row[1] for row in connection.execute('PRAGMA table_info(workshop_messages)')}:
+        connection.execute("ALTER TABLE workshop_messages ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]'")
+    if 'archived_at' not in {row[1] for row in connection.execute('PRAGMA table_info(workshop_jobs)')}:
+        connection.execute('ALTER TABLE workshop_jobs ADD COLUMN archived_at TEXT')
     connection.execute('CREATE INDEX IF NOT EXISTS workshop_messages_job ON workshop_messages(job_id, id)')
 
 
@@ -86,7 +90,9 @@ def get_job(c, job_id):
     job.pop('creation_key', None)
     job['context'] = json.loads(job['context'])
     job['parts'] = json.loads(job['parts'])
-    job['messages'] = [dict(item) for item in c.execute('SELECT id, role, content, created_at FROM workshop_messages WHERE job_id=? ORDER BY id', (str(job_id),))]
+    job['messages'] = [dict(item) for item in c.execute('SELECT id, role, content, created_at, evidence FROM workshop_messages WHERE job_id=? ORDER BY id', (str(job_id),))]
+    for message in job['messages']:
+        message['evidence'] = json.loads(message['evidence'])
     job['sources'] = [dict(item) for item in c.execute('SELECT id, url, title, document IS NOT NULL AS read, updated_at FROM workshop_sources WHERE job_id=? ORDER BY id DESC', (str(job_id),))]
     ranks = {entry['url']: index for index, entry in enumerate(matching_sources(job['context']))}
     job['sources'].sort(key=lambda entry: (0 if entry['read'] else 1, ranks.get(entry['url'], 100), entry['id']))
@@ -103,9 +109,9 @@ def insert_job(c, title, creation_key=None):
 
 
 @router.get('')
-def list_jobs():
+def list_jobs(include_archived: bool = True):
     with closing(connect()) as c:
-        rows = c.execute('SELECT id,title,created_at,updated_at FROM workshop_jobs ORDER BY updated_at DESC,id').fetchall()
+        rows = c.execute('SELECT id,title,created_at,updated_at,archived_at FROM workshop_jobs WHERE (? OR archived_at IS NULL) ORDER BY updated_at DESC,id', (include_archived,)).fetchall()
     return dict(jobs=[dict(row) for row in rows], mode=MODE)
 
 
@@ -120,6 +126,15 @@ def create_job(item: JobCreate):
 @router.get('/{job_id}')
 def job_details(job_id: UUID):
     with closing(connect()) as c:
+        return get_job(c, job_id)
+
+
+@router.post('/{job_id}/archive')
+def archive_job(job_id: UUID):
+    with closing(connect()) as c, c:
+        get_job(c, job_id)
+        c.execute('UPDATE workshop_jobs SET archived_at=COALESCE(archived_at,?),updated_at=? WHERE id=?',
+                  (now(), now(), str(job_id)))
         return get_job(c, job_id)
 
 
@@ -142,7 +157,7 @@ def route_question(previous, question):
     lower = re.sub(r'\b(?:john\s+deer|jd)\b', 'john deere', lower)
     lower = re.sub(r'\bhond[ae]\b', 'honda', lower)
     lower = re.sub(r'\b(?:b&s|briggs and stratton)\b', 'briggs', lower)
-    if re.search(r'\b(?:other|another|different|second|third)\s+(?:riding\s+)?(?:mower|tractor|engine|machine)\b', lower):
+    if re.search(r'\b(?:other|another|different|second|third)\s+(?:riding\s+)?(?:mower|tractor|engine|machine|atv|quad|motorcycle)\b', lower):
         context = {}
     if any(term in lower for term in ('walk me through', 'step by step', 'never done', 'beginner')):
         context['response_style'] = 'guided'
@@ -155,6 +170,32 @@ def route_question(previous, question):
             context = {}
         context.update(model='Turf Ranger')
         if 'exmark' in lower: context['brand'] = 'Exmark'
+    # Accept both TRX 200 and the common spoken order Honda 200 TRX.
+    atv = re.search(r'\btrx[ -]*(\d{2,4}[a-z0-9]*)\b|\b(\d{2,4})\s+trx\b', lower)
+    if atv:
+        value = 'TRX' + (atv.group(1) or atv.group(2)).upper()
+        if value != context.get('model'):
+            context = {}
+        context.update(brand='Honda', model=value)
+    # A newly stated task replaces the old task; short identity answers retain it.
+    task = re.search(r'\b(?:what|where|how|need|find|takes|spacing|pattern|spark\s*plug|torque|specs)\b', lower)
+    if task:
+        for key in ('intent', 'document_kind', 'symptom', 'task_question', 'research_question', '_research'):
+            context.pop(key, None)
+        context['task_question'] = question
+    # Treat an explicit new machine as an identity boundary, even outside our directory.
+    named = re.search(r'\b(?:honda|kawasaki|kohler|kubota|exmark|john deere|briggs|vanguard)\s+([a-z]{1,12}[ -]?\d{2,4}[a-z0-9-]*)\b', lower)
+    generic = re.search(r'\b([a-z]{2,8})(\d{2,4}[a-z]?)\b|\b(trx|gx|gcv|gxv)[ -]+(\d{2,4}[a-z]?)\b', lower)
+    candidate = named.group(1) if named else (generic.group() if generic else None)
+    if candidate and not candidate.startswith('gcack') and 'turf ranger' not in lower and 'turfranger' not in lower:
+        normalized = re.sub(r'[ -]', '', candidate).upper()
+        if normalized != re.sub(r'[ -]', '', context.get('model', '')).upper():
+            if context.get('model'):
+                brand = context.get('brand')
+                context = {'brand': brand} if brand and not named else {}
+            context['model'] = normalized
+    elif not atv and re.search(r'\b(?:honda|kawasaki|kohler|kubota|exmark|john deere|briggs|vanguard)\b', lower) and re.search(r'\b(?:atv|quad|motorcycle|tractor|mower|engine|machine)\b', lower):
+        context = {}
     deere_model = re.search(r'\b[dxes]\d{3}\b', lower)
     model = re.search(r'\b(?:igx|igxv|gxv|gx|gcv|gc|gsv|gs|gxh|gxr)\s*-?\s*\d{2,3}\b', lower)
     if model:
@@ -210,12 +251,12 @@ def route_question(previous, question):
     elif any(word in lower for word in ("won't start", 'will not start', 'not start', 'turns over', 'no start', 'runs rough', 'running rough', 'stalls', 'smoke', 'cranks', 'not starting', "doesn't start", 'wont start')):
         context['intent'] = 'troubleshoot'
         context['symptom'] = question
-    elif any(word in lower for word in ('torque', 'clearance', 'specification', 'specs', 'spark plug gap')):
+    elif any(word in lower for word in ('torque', 'clearance', 'specification', 'specs', 'spark plug', 'sparkplug', 'lug spacing', 'bolt pattern', 'lug pattern')):
         context['intent'] = 'specification'
     if any(word in lower for word in ('oil drain', 'drain plug', 'oil change')):
         context.update(intent='manual', document_kind='oil drain procedure')
     context.setdefault('intent', 'general')
-    if any(term in lower for term in ('manual', 'diagram', 'oil drain', 'drain plug', 'oil change', 'torque', 'specs', 'specification', 'spark plug gap', 'won\'t start', 'wont start', 'not start', 'runs rough', 'running rough', 'stalls', 'replacement', 'fabricat')):
+    if any(term in lower for term in ('manual', 'diagram', 'oil drain', 'drain plug', 'oil change', 'torque', 'specs', 'specification', 'spark plug', 'sparkplug', 'won\'t start', 'wont start', 'not start', 'runs rough', 'running rough', 'stalls', 'replacement', 'fabricat')):
         context['task_question'] = question
     context['last_question'] = question
     return context
@@ -245,7 +286,7 @@ def matching_sources(context):
 def reference_reply(context, question):
     intent = context['intent']
     identity = ' '.join(context.get(key, '') for key in ('brand', 'model')).strip()
-    lead = ('Keeping ' + identity + ' with this job.\n\n') if identity else ''
+    lead = ''
     followup = 'What is the engine make/model, and is it petrol or diesel?' if not context.get('model') else 'What is the serial prefix/range and country or region?' if not context.get('serial') and not context.get('region') else 'What is the serial prefix/range?' if not context.get('serial') else 'What country or region is it from?' if not context.get('region') else 'Which document or task do you need next?'
     if intent == 'troubleshoot':
         if context.get('fuel') == 'diesel':
@@ -264,15 +305,15 @@ def reference_reply(context, question):
             reply += '\n\nRecord one observation at a time. Stop if you see leaks, damaged wiring or an unsafe condition. A model-specific service procedure is needed before intrusive fuel, electrical or compression tests; this prototype cannot verify a diagnosis.'
     elif intent == 'manual':
         kind = context.get('document_kind', 'owner')
-        reply = ('I can show manufacturer reference locations for ' + identity + '.' if matching_sources(context) else 'I do not have a matching manufacturer source in this prototype yet.')
-        reply += '\n\nNo matching ' + kind + ' document has been verified. Open a source below to read it here. Compare model, serial range, year and region before choosing a document; an owner manual may not include service, wiring or hydraulic diagrams.'
+        reply = ('I do not have a matching manufacturer source yet.\n\n' if not matching_sources(context) else '')
+        reply += 'No matching ' + kind + ' document has been verified' + (' for ' + identity if identity else '') + '.'
         reply += '\n\n' + ('Which engine model is it, and what country is it from?' if not context.get('model') else followup)
     elif intent == 'parts':
         reply = 'Start with the machine/engine identity and the markings on the old part.\n\nI can keep the details and locate supported manufacturer parts-list sources. I cannot verify a replacement or compatibility from this description alone.\n\nWhat is the engine/machine model, and what markings or part number can you read?'
     elif intent == 'fabrication':
         reply = 'Start by recording the mating dimensions and what the part must do.\n\nI can keep a fabrication brief with the job. Material choice, tolerances and load capacity are not verified engineering advice.\n\nWhat will the part support or connect, and what dimensions/material do you already know?'
     elif intent == 'specification':
-        reply = 'I cannot give an unverified specification. Use the exact model-specific service document.\n\nNo torque, clearance or part number has been established. Open a manufacturer source below; a generic manual is not proof that a value applies.\n\nWhich component and exact engine model are you working on?'
+        reply = 'I cannot give an unverified specification for ' + (identity or 'this machine') + '.\n\nWhat is the full model designation on its identification label?'
     else:
         reply = 'I can keep your job context and help locate supported references. Live AI is unavailable.\n\nWhat machine or part are you working on, and what do you want to find out?'
     if context.get('response_style') == 'guided' and intent == 'troubleshoot':
@@ -313,6 +354,10 @@ def ask_question(item: Question):
         if online_reply:
             # Research limitations supplement useful symptom guidance rather than replacing it.
             reply = reply + '\n\nReference lookup: ' + online_reply if context['intent'] == 'troubleshoot' and not documents else online_reply
+    if local['needs_online']:
+        plan = search_providers.search_plan(context, item.question)
+        if plan.get('browser_url'):
+            reply += '\n\nWeb search available for: ' + plan['query'] + '. Use Search the web below to browse results inside GopherTech. These results are not automatically read or verified.'
     timestamp = now()
     with closing(connect()) as c, c:
         c.execute('BEGIN IMMEDIATE')
@@ -324,7 +369,10 @@ def ask_question(item: Question):
         if current != revision: raise HTTPException(409, 'Another answer arrived. Please ask again using the updated conversation.')
         context['_research'] = json.dumps(dict(findings=local['findings'], needs_online=local['needs_online'], plan=search_providers.search_plan(context, item.question)))
         c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at,request_key,request_question) VALUES(?,?,?,?,?,?)', (job_id, 'user', item.question, timestamp, str(item.request_key), item.question))
-        c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at) VALUES(?,?,?,?)', (job_id, 'assistant', reply, timestamp))
+        evidence = [dict(url=doc['url'], title=doc.get('title', 'Saved reference'), read=True) for doc in documents]
+        evidence += [dict(url=f['url'], title=f['title'], read=True) for f in local['findings'] if f['kind'] == 'document' and f['sufficient'] and not f['stale']]
+        c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at,evidence) VALUES(?,?,?,?,?)', (job_id, 'assistant', reply, timestamp, json.dumps(evidence)))
+        c.execute('UPDATE workshop_jobs SET archived_at=NULL WHERE id=?', (job_id,))
         c.execute('UPDATE workshop_jobs SET context=?,updated_at=? WHERE id=?', (json.dumps(context), timestamp, job_id))
         for source in matching_sources(context):
             c.execute('INSERT OR IGNORE INTO workshop_sources(job_id,url,title,updated_at) VALUES(?,?,?,?)', (job_id, source['url'], source['title'], timestamp))
