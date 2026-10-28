@@ -2,6 +2,46 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
+[End-of-day handoff for October 29](docs/HANDOFF-2026-10-28-PM.md) ·
+[Session log](docs/SESSION-LOG.md).
+
+## Voice and Firecrawl checkpoint — October 28, afternoon
+
+Go For Gopher now searches and reads up to three pages through Firecrawl,
+then uses the installed local AI to select relevant source excerpts. Replies
+keep their source links and saved text for reopening. Manufacturer references
+take priority where recognized; video captions are excluded. PDF text is kept
+for inspection rather than turned into repair instructions. This is source
+research with local passage selection, not general hosted AI diagnosis.
+
+**Speak** starts local English dictation; tap **Stop recording**, review the
+words, then Ask. **Clear results** clears replies and references from view while
+preserving saved history, notes, parts and the question draft. **Show saved
+history** restores the hidden replies. This view preference lasts for the app
+session. Leaving quick search, switching orders or clearing cancels dictation.
+
+Firecrawl authorization is private backend configuration. The connection helper
+opens browser authorization and saves the key outside the repository:
+
+```bash
+.venv/bin/python -B tools/connect_firecrawl.py
+```
+
+No payment or subscription setup is performed. Free account limits apply;
+authorization, credit and rate-limit errors are shown without paid fallback.
+Use `GOPHERTECH_SEARCH_PROVIDER=browser` for the earlier browser-only behavior,
+or `GOPHERTECH_SEARCH_PROVIDER=disabled` to disable automatic web research.
+
+Offline voice setup on another desktop:
+
+```bash
+.venv/bin/python -m pip install -r requirements-voice.txt
+.venv/bin/python tools/setup_voice.py
+```
+
+Restart the app/backend after updating. See
+[the integration and validation notes](docs/VOICE-AND-FIRECRAWL-2026-10-28.md).
+
 ## Current work order checkpoint — October 28, 2026
 
 [Morning handoff and afternoon starting point](docs/HANDOFF-2026-10-28-AM.md).
@@ -17,7 +57,7 @@ machine draft. Parts, Troubleshoot, Repair and Fabricate each auto-save their
 own task and notes; unused sections open blank and saved entries survive restart. Finance screens are no longer in this interface.
 
 **Photos** can choose, preview and keep original JPEG/PNG/WebP files locally per
-work order. Camera capture, OCR and connected AI remain unimplemented. Photos
+work order. Camera capture, OCR and hosted AI answering remain unimplemented. Photos
 are stored in Godot's app data directory, separately from SQLite; back up both.
 This is a desktop checkpoint, not an Android-ready package.
 
@@ -33,9 +73,9 @@ use Work Area to choose an existing order or create one explicitly.
 
 Interactive manufacturer lookup waits at most eight seconds before saving an
 explicit timeout reply. Outstanding lookups are bounded; late results do not
-rewrite saved answers. General web search opens inside the app and does not
-read or answer from search results. See `docs/QUESTION-READINESS-2026-10-27.md`
-for tested behavior and the remaining shop-readiness blocker.
+rewrite saved answers. The optional browser search opens inside the app.
+Automatic search/page reading now uses Firecrawl as described above; the older
+`docs/QUESTION-READINESS-2026-10-27.md` describes the earlier checkpoint.
 
 ## Interactive reference webpages
 

@@ -19,7 +19,20 @@ This document records future design requirements. It does not imply that these
 features are already implemented. Coordinate website messaging with the actual
 application capabilities as both evolve.
 
-## Current owner-approved tablet direction — October 28, 2026
+## Afternoon owner direction — October 28, 2026
+
+Make Go For Gopher faster to grab and use. Voice input and Clear results are
+implemented; the wider interface redesign is deferred. The owner authorized
+Firecrawl search/page reading starting with free access, followed by local AI
+passage selection. Browser authorization and live retrieval succeeded, and the
+owner confirmed microphone capture and useful source discovery. Hosted AI
+answering, paid-plan purchases and automatic spending are not authorized.
+
+The next improvement is selecting task-relevant information instead of a forum
+introduction. Finding a related page does not establish a correct diagnosis or
+repair procedure. See `HANDOFF-2026-10-28-PM.md` for tomorrow's scope and evidence.
+
+## Owner-approved tablet direction — October 28, 2026 morning
 
 Work order numbers organize a standalone tablet helper with Wi-Fi and connected
 AI as the target. Open directly to Go For Gopher quick search. Keep the active
@@ -36,6 +49,10 @@ has been approved or activated. See `TABLET-TRIAL-2026-10-28.md` for actual
 implementation and test boundaries.
 
 ## Earlier owner decisions
+
+These are historical decisions. The October 28 work-order and Firecrawl/voice
+approvals supersede the earlier interface-only hold and directory-only research
+scope; paid activation still requires a separate owner decision.
 
 - The Shop Buddy mission is the current direction: ASK → FIND → ANALYZE →
   ANSWER → REMEMBER. Milestone 1 is interface-only; stop for owner testing and

@@ -5,6 +5,11 @@ October 28, 2026, superseding the interface-only hold in this document. See
 `TABLET-TRIAL-2026-10-28.md` for the current scope. Paid provider activation still
 requires a budget/credential decision.
 
+**Afternoon checkpoint:** The owner also authorized voice/Clear results and a
+free-access Firecrawl integration, then confirmed microphone/source-discovery
+success and requested a GitHub checkpoint. `HANDOFF-2026-10-28-PM.md` is the
+current resume point. The interface-only instructions below are historical.
+
 GopherTech: Figure it out. Figure it right. Get it fixed.
 
 The owner has authorized **Milestone 1 (Interface) only**. Stop after reporting

@@ -56,6 +56,12 @@ var applying := false
 var sources_expanded := false
 var submitted_question := ""
 var latest_answer_paragraph := 0
+var voice_input: Button
+var clear_button: Button
+var restore_button: Button
+var cleared_results: Dictionary = {}
+var results_generation := 0
+var request_results_generation := 0
 
 func label(parent: Node, value: String, size: int = 15) -> Label:
 	var node := Label.new()
@@ -101,6 +107,39 @@ func _ready() -> void:
 	ask_button.custom_minimum_size.y = 54
 	ask_button.pressed.connect(ask)
 	add_child(ask_button)
+	var quick_actions := HFlowContainer.new()
+	quick_actions.add_theme_constant_override("h_separation", 8)
+	quick_actions.add_theme_constant_override("v_separation", 8)
+	add_child(quick_actions)
+	voice_input = load("res://voice_input.gd").new()
+	voice_input.api_url = api_url
+	quick_actions.add_child(voice_input)
+	voice_input.notice.connect(set_status)
+	voice_input.activity_changed.connect(func(active: bool):
+		ask_button.disabled = active or busy
+	)
+	voice_input.transcript_ready.connect(func(value: String):
+		# Append to the current draft, preserving any text entered while waiting.
+		question.text = question.text.strip_edges() + (" " if not question.text.strip_edges().is_empty() else "") + value
+		question.grab_focus()
+		question.set_caret_line(question.get_line_count() - 1)
+		question.set_caret_column(question.get_line(question.get_line_count() - 1).length())
+	)
+	before_switch.connect(func(): voice_input.cancel())
+	clear_button = Button.new()
+	clear_button.text = "Clear results"
+	clear_button.custom_minimum_size.y = 44
+	clear_button.pressed.connect(clear_results)
+	quick_actions.add_child(clear_button)
+	restore_button = Button.new()
+	restore_button.text = "Show saved history"
+	restore_button.custom_minimum_size.y = 44
+	restore_button.visible = false
+	restore_button.pressed.connect(func():
+		cleared_results.erase(str(job.get("id", "")))
+		render_conversation()
+	)
+	quick_actions.add_child(restore_button)
 	status = label(self, "Connecting to your local workspace…", 13)
 	conversation = rich(self, 160)
 	conversation.text = "Ask in your own words. I’ll keep the useful details with this conversation."
@@ -233,9 +272,10 @@ func set_status(value: String) -> void:
 func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPClient.METHOD_POST) -> void:
 	if busy: return
 	operation = kind
+	request_results_generation = results_generation
 	busy = true
 	if kind in ["open", "create"]: lock_editors(true)
-	request_node.timeout = 20.0 if kind == "question" else 5.0 if kind in ["startup", "list", "open", "state", "create", "archive"] else 45.0
+	request_node.timeout = 35.0 if kind == "question" else 5.0 if kind in ["startup", "list", "open", "state", "create", "archive"] else 45.0
 	ask_button.disabled = true
 	if kind == "question": ask_button.text = "Finding useful information…"
 	var error := request_node.request(api_url + path, ["Content-Type: application/json"], method, "" if method == HTTPClient.METHOD_GET else JSON.stringify(body))
@@ -250,7 +290,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 		set_status("Backend unavailable. Your question is kept; it has not been saved. Start run_backend.sh and retry.")
 
 func ask() -> void:
-	if busy: return
+	if busy or voice_input.active: return
 	var value := question.text.strip_edges()
 	if value.is_empty():
 		set_status("Type your question first.")
@@ -265,7 +305,7 @@ func ask() -> void:
 	var body := {"question":value,"request_key":request_key}
 	if job.has("id"): body["job_id"] = job["id"]
 	submitted_question = value
-	set_status("Reading saved and manufacturer references…")
+	set_status("Finding and reading useful sources…")
 	send("question", "/jobs/question", body)
 
 func refresh_jobs() -> void:
@@ -390,9 +430,34 @@ func apply_job(value: Dictionary) -> bool:
 	job_loaded.emit(job)
 	return true
 
+func clear_results() -> void:
+	voice_input.cancel()
+	results_generation += 1
+	var cutoff := 0
+	for entry in job.get("messages", []): cutoff = maxi(cutoff, int(entry["id"]))
+	cleared_results[str(job.get("id", ""))] = cutoff
+	sources_expanded = false
+	pending_reference = ""
+	document = {}
+	document_reader.text = ""
+	document_links.text = ""
+	document_header.text = ""
+	pdf_image.texture = null
+	pdf_image.visible = false
+	document_panel.visible = false
+	live_browser.reset()
+	render_conversation()
+	set_status("Results cleared. Saved work and history are kept.")
+	question.grab_focus()
+
 func render_conversation() -> void:
 	var transcript := ""
+	var cleared: bool = cleared_results.has(str(job.get("id", "")))
+	var cutoff: int = cleared_results.get(str(job.get("id", "")), -1)
+	restore_button.visible = cleared and not job.get("messages", []).is_empty()
+	latest_answer_paragraph = 0
 	for entry in job.get("messages", []):
+		if int(entry["id"]) <= cutoff: continue
 		var id := str(entry["id"])
 		var content: String = entry["content"]
 		if entry["role"] == "assistant" and ("Page " in content and "Source:" in content):
@@ -404,14 +469,15 @@ func render_conversation() -> void:
 		for evidence in entry.get("evidence", []):
 			transcript += "[url=evidence:%s]View source: %s[/url]\n" % [evidence["url"], escape(evidence.get("title", "Reference"))]
 		if not entry.get("evidence", []).is_empty(): transcript += "\n"
-	if transcript.is_empty(): transcript = "Ask your question above to continue.\n\n"
-	if not source_records.is_empty():
+	var has_new_results := not transcript.is_empty()
+	if transcript.is_empty(): transcript = "Ready for your next question.\n\n" if cleared else "Ask your question above to continue.\n\n"
+	if not source_records.is_empty() and (not cleared or sources_expanded):
 		transcript += "[url=sources]Job reference history (%d)[/url]\n" % source_records.size()
 	if sources_expanded:
 		for index in range(source_records.size()):
 			transcript += "[url=source:%d]%s[/url]\n" % [index, escape(source_records[index]["title"])]
 	var plan: Dictionary = job.get("research", {}).get("plan", {})
-	if plan.get("browser_url", "") != "":
+	if plan.get("browser_url", "") != "" and (not cleared or has_new_results):
 		transcript += "\n[url=websearch]Search the web for this question[/url]\nBrowse results inside GopherTech. Answers are not automatically read or verified.\n"
 	conversation.text = transcript
 
@@ -484,7 +550,7 @@ func fit_pdf_page() -> void:
 func on_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	busy = false
 	lock_editors(false)
-	ask_button.disabled = false
+	ask_button.disabled = voice_input.active
 	ask_button.text = "Ask GopherTech"
 	var parser := JSON.new()
 	var data: Variant = null
@@ -515,13 +581,16 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		jobs = data.get("jobs", [])
 		job_list.clear()
 		render_jobs()
-		set_status("Ready · Local work orders. Reference mode; connected AI is not enabled yet.")
+		set_status("Ready · Ask a question or use Speak. Sources stay with the saved reply.")
 		if operation == "startup":
 			question.grab_focus()
 	elif operation == "archive":
 		new_job()
 		set_status("Conversation archived in the database with messages, notes, parts and saved references.")
 	elif operation == "pdf":
+		if request_results_generation != results_generation:
+			call_deferred("drain")
+			return
 		var image := Image.new()
 		if image.load_png_from_buffer(Marshalls.base64_to_raw(data.get("png_base64", ""))) == OK:
 			pdf_image.texture = ImageTexture.create_from_image(image)
@@ -536,9 +605,14 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 			set_status("Incomplete reference reply. Previous content is kept.")
 			return
 		if not apply_job(data["job"]): return
-		show_document(data["document"])
-		set_status("Opened saved reference copy; it has not been refreshed. Check model, region and revision." if data.get("cached", false) else "Reference read and saved with this job. Check model, serial range and region.")
+		if request_results_generation == results_generation:
+			show_document(data["document"])
+			set_status("Opened saved reference copy; it has not been refreshed. Check model, region and revision." if data.get("cached", false) else "Reference read and saved with this job. Check model, serial range and region.")
 	else:
+		if operation == "question" and request_results_generation != results_generation:
+			var cutoff := 0
+			for entry in data.get("messages", []): cutoff = maxi(cutoff, int(entry["id"]))
+			cleared_results[str(data.get("id", ""))] = cutoff
 		if not apply_job(data): return
 		set_status("Saved · " + str(job.get("title", "Workshop job")) + " · Source research.")
 		if operation == "question":

@@ -1,5 +1,11 @@
 # Shop Buddy milestones 2–3
 
+**Historical milestone notes.** October 28 afternoon added Firecrawl search/page
+reading to Go For Gopher and connected local passage selection to its reply path,
+plus offline voice and Clear results. The owner approved that scope and tested
+basic microphone/source discovery. See `HANDOFF-2026-10-28-PM.md`; statements
+below about missing whole-web retrieval describe the earlier checkpoint.
+
 Launch with `./run_dashboard.sh`. It starts the existing FastAPI app on a private
 loopback port and passes that address to Godot. Closing Godot stops that backend.
 An editor Run still requires `./run_backend.sh`; it does not invoke the desktop

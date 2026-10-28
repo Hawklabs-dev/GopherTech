@@ -154,8 +154,16 @@ app.include_router(research_router)
 from jobs import router as jobs_router
 app.include_router(jobs_router)
 
+from voice import router as voice_router
+app.include_router(voice_router)
+
 
 @app.get('/system/info')
 def system_info():
     import local_ai
-    return dict(application='GopherTech', backend_revision='shop-buddy-2-3', local_ai=local_ai.status(), paid_calls=False, research='Bounded manufacturer document retrieval; no whole-web search provider configured')
+    import firecrawl_client
+    import search_providers
+    return dict(application='GopherTech', backend_revision='shop-buddy-2-3', local_ai=local_ai.status(), paid_calls=False,
+                search_provider=search_providers.provider().plan('').provider,
+                firecrawl_connected=bool(firecrawl_client.api_key()),
+                research='Firecrawl search and page reading with local passage selection; no automatic paid fallback')

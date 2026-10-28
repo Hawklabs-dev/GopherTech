@@ -213,7 +213,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		message.text = "Unexpected server reply. Previous content is kept."
 		return
 	if operation == "status":
-		message.text = "Reference reader connected. No paid APIs are enabled."
+		message.text = "Reference reader connected."
 		ai_status.text = data.get("ai_reason", "AI is paused.") + " No AI answer is generated."
 	elif operation == "sources":
 		if not data.get("sources") is Array:

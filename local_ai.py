@@ -73,7 +73,7 @@ def start():
     return False
 
 
-def select(question, evidence):
+def select(question, evidence, timeout=20):
     """Model chooses existing passage IDs; it cannot create technical facts or URLs."""
     if not evidence or not ready():
         return None
@@ -84,7 +84,7 @@ def select(question, evidence):
                              dict(role='user', content=json.dumps(prompt))])
     try:
         request = urllib.request.Request(base_url() + '/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.load(response)
         ids = json.loads(result['choices'][0]['message']['content'])['ids']
         if not isinstance(ids, list) or any(type(value) is not int or not 0 <= value < len(evidence) for value in ids):

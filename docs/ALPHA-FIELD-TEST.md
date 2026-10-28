@@ -1,5 +1,14 @@
 # HawkLabs Alpha Field Test — target October 28, 2026
 
+**October 28 end-of-day status:** This original alpha schedule is historical.
+The current working plan targets a limited HawkLabs trial in the week of
+November 2, then an outside-shop trial if agreed. Today the owner confirmed
+basic microphone capture, relevant source discovery and in-app source opening.
+This is partial hands-on evidence; it does not complete the six full readiness
+checks below or establish repair-answer quality. The Grizzly result selected a
+forum introduction, which is the next quality improvement. See
+`HANDOFF-2026-10-28-PM.md` and the owner screenshots it lists.
+
 The target is a readiness decision, not a public release promise. Start with
 2–3 trusted mechanics/equipment owners only after hands-on checks pass.
 

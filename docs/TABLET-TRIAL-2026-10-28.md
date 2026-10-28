@@ -1,5 +1,11 @@
 # Tablet helper checkpoint — October 28, 2026
 
+**Afternoon update:** Desktop voice dictation, Clear results and Firecrawl page
+research with local AI passage selection are now implemented and owner-reviewed.
+See `VOICE-AND-FIRECRAWL-2026-10-28.md` and `HANDOFF-2026-10-28-PM.md`. Android,
+camera capture and hosted AI answering remain separate work. Earlier statements
+below describe the morning checkpoint and do not override the afternoon update.
+
 ## Approved direction
 
 The owner approved a standalone tablet helper organized by work order number,

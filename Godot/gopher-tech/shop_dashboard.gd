@@ -311,6 +311,7 @@ func show_page(key: String, refresh: bool = true, remember_position: bool = true
 		elif research_kind == "photos": set_research_kind("parts")
 		key = "saved"
 	if not pages.has(key): return
+	if key != "home" and job_workspace.voice_input.active: job_workspace.voice_input.cancel()
 	var previous := active_tool if active_page == "tools" else active_page
 	if remember_position: screen_positions[previous] = page_scroll.scroll_vertical
 	var selected_tool := key in ["references", "calculators", "equipment"]

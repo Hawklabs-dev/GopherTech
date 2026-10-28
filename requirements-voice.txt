@@ -1,0 +1,2 @@
+# Optional offline dictation runtime; models are installed with tools/setup_voice.py.
+vosk==0.3.45

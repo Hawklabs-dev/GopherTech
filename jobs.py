@@ -1,4 +1,4 @@
-"""Persistent workshop conversations in explicit reference mode; no AI/API provider."""
+"""Persistent workshop questions, source research and optional local AI selection."""
 from contextlib import closing
 from datetime import datetime, timezone
 import json
@@ -130,6 +130,10 @@ def get_job(c, job_id):
     job['sources'].sort(key=lambda entry: (0 if entry['read'] else 1, ranks.get(entry['url'], 100), entry['id']))
     job.update(mode=MODE, ai_enabled=False)
     job['research'] = dict(local_checked=True, **json.loads(job['context'].pop('_research', '{}')))
+    plan = job['research'].get('plan', {})
+    if plan.get('provider') == 'firecrawl':
+        job['ai_enabled'] = plan.get('selection') == 'local_ai'
+        job['mode'] = 'Source research — local AI passage selection' if job['ai_enabled'] else 'Source research — inspect source applicability'
     return job
 
 
@@ -393,6 +397,7 @@ def ask_question(item: Question):
         local = knowledge.find(c, context, item.question, job_id)
     reply = answering.build(context, item.question, local, reference_reply)
     documents = []
+    online_plan = None
     if not local['needs_online']:
         usable = next((entry for entry in local['findings'] if entry['kind'] == 'document' and entry['sufficient'] and not entry['stale']), None)
         if usable:
@@ -400,9 +405,17 @@ def ask_question(item: Question):
                 row = c.execute('SELECT document FROM workshop_sources WHERE id=?', (usable['source_id'],)).fetchone()
             if row:
                 snapshot = json.loads(row['document'])
-                if snapshot.get('format') == 'pdf':
+                if snapshot.get('provider') == 'firecrawl':
+                    import web_research
+                    documents, reply, online_plan = web_research.from_saved(context, item.question, snapshot)
+                elif snapshot.get('format') == 'pdf':
                     reply = 'From a saved reference (not refreshed):\n\n' + retrieval.extract(snapshot, context.get('task_question', item.question), context)
-    if local['needs_online'] and context.get('intent') in ('manual', 'specification', 'parts', 'troubleshoot'):
+    if local['needs_online'] and isinstance(search_providers.provider(), search_providers.FirecrawlProvider):
+        import web_research
+        documents, online_reply, online_plan = web_research.answer(context, item.question)
+        if online_reply:
+            reply = online_reply
+    elif local['needs_online'] and context.get('intent') in ('manual', 'specification', 'parts', 'troubleshoot'):
         research_question = context.get('task_question', item.question)
         context['research_question'] = research_question
         documents, online_reply = retrieval.answer(context, research_question, matching_sources(context))
@@ -422,10 +435,11 @@ def ask_question(item: Question):
             return get_job(c, existing['job_id'])
         current = c.execute('SELECT COALESCE(MAX(id),0) FROM workshop_messages WHERE job_id=?', (job_id,)).fetchone()[0]
         if current != revision: raise HTTPException(409, 'Another answer arrived. Please ask again using the updated conversation.')
-        context['_research'] = json.dumps(dict(findings=local['findings'], needs_online=local['needs_online'], plan=search_providers.search_plan(context, item.question)))
+        context['_research'] = json.dumps(dict(findings=local['findings'], needs_online=local['needs_online'], plan=online_plan if online_plan is not None else search_providers.search_plan(context, item.question)))
         c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at,request_key,request_question) VALUES(?,?,?,?,?,?)', (job_id, 'user', item.question, timestamp, str(item.request_key), item.question))
         evidence = [dict(url=doc['url'], title=doc.get('title', 'Saved reference'), read=True) for doc in documents]
         evidence += [dict(url=f['url'], title=f['title'], read=True) for f in local['findings'] if f['kind'] == 'document' and f['sufficient'] and not f['stale']]
+        evidence = list({entry['url']:entry for entry in evidence}.values())
         c.execute('INSERT INTO workshop_messages(job_id,role,content,created_at,evidence) VALUES(?,?,?,?,?)', (job_id, 'assistant', reply, timestamp, json.dumps(evidence)))
         c.execute('UPDATE workshop_jobs SET archived_at=NULL WHERE id=?', (job_id,))
         c.execute('UPDATE workshop_jobs SET context=?,updated_at=? WHERE id=?', (json.dumps(context), timestamp, job_id))

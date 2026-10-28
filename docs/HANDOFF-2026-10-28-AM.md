@@ -1,5 +1,9 @@
 # GopherTech morning handoff — October 28, 2026
 
+**Historical morning checkpoint.** The afternoon voice/Firecrawl work and owner
+review are recorded in `HANDOFF-2026-10-28-PM.md`; use that handoff to resume
+October 29. The morning descriptions below remain as the original record.
+
 The owner approved publishing this morning's local checkpoint to the existing
 `Hawklabs-dev/GopherTech` repository on `main`, then resuming this afternoon.
 

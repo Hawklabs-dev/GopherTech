@@ -1,5 +1,11 @@
 # Main question workflow investigation — October 27, 2026
 
+**Historical investigation.** On October 28 afternoon, Firecrawl search/page
+reading and local AI passage selection entered the answer pipeline. Owner testing
+confirmed voice capture, relevant source discovery and in-app opening. Choosing
+useful passages remains a quality gap. See `HANDOFF-2026-10-28-PM.md` for the
+current checkpoint; the limitations below describe the earlier implementation.
+
 The desktop workflow now starts clean, survives a failed connection, and bounds
 the time spent waiting for manufacturer research. It is not yet ready to promise
 general equipment question answering to local shops.

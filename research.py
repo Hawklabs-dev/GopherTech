@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(prefix='/research', tags=['Manufacturer references'])
 HOSTS = frozenset({'engines.honda.com', 'engine.honda.ca',
+                  'www.honda-engines-eu.com',
                   'cdn.powerequipment.honda.com', 'www.briggsandstratton.com',
                   'www.briggsracing.com', 'www.vanguardpower.com'})
 SOURCES = [
@@ -217,7 +218,11 @@ def sources(item: SourceQuery):
 
 @router.get('/status')
 def research_status():
-    return dict(paid_services=False, ai_enabled=False, ai_reason='Paid AI setup and calls are paused by the owner. Local passage selection is optional; see /system/info for its current status.',
+    import local_ai
+    import firecrawl_client
+    import search_providers
+    return dict(paid_services=False, ai_enabled=local_ai.ready(), ai_reason='Go For Gopher can use Firecrawl page reading and local AI passage selection. Hosted AI answering remains paused.',
+                search_provider=search_providers.provider().plan('').provider, firecrawl_connected=bool(firecrawl_client.api_key()),
                 pdf_text=bool(shutil.which('pdftotext')), pdf_pages=bool(shutil.which('pdftoppm')),
                 supported_hosts=sorted(HOSTS))
 

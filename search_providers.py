@@ -35,6 +35,16 @@ class BrowserProvider:
         return self.plan(query)
 
 
+class FirecrawlProvider:
+    def plan(self, query):
+        return SearchResponse('firecrawl', 'ready', query,
+                              'Search and read up to three web sources through Firecrawl; confirm applicability before using technical information.')
+
+    def search(self, query):
+        import firecrawl_client
+        return firecrawl_client.search(query)
+
+
 class UnavailableProvider:
     def __init__(self, name, message):
         self.name, self.message = name, message
@@ -47,7 +57,9 @@ class UnavailableProvider:
 
 
 def provider() -> SearchProvider:
-    name = os.environ.get('GOPHERTECH_SEARCH_PROVIDER', 'browser').strip().lower()
+    name = os.environ.get('GOPHERTECH_SEARCH_PROVIDER', 'firecrawl').strip().lower()
+    if name == 'firecrawl':
+        return FirecrawlProvider()
     if name == 'browser':
         return BrowserProvider()
     if name == 'disabled':
