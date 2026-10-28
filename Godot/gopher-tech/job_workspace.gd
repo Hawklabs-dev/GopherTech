@@ -2,10 +2,20 @@ extends VBoxContainer
 ## Persistent conversations with source research and optional local passage selection.
 
 signal job_loaded(job: Dictionary)
+signal status_changed(value: String)
+signal before_switch
 signal save_notice(value: String)
 signal answer_ready
 signal reference_ready(control: Control)
 
+var order_number: LineEdit
+var order_picker: VBoxContainer
+var new_order_row: HBoxContainer
+var order_search: LineEdit
+var displayed_jobs: Array = []
+var drafts: Dictionary = {}
+var creation_body: Dictionary = {}
+var pending_creation: Dictionary = {}
 var saved_view: VBoxContainer
 var question: TextEdit
 var ask_button: Button
@@ -15,6 +25,10 @@ var conversation: RichTextLabel
 var job_list: ItemList
 var notes: TextEdit
 var notes_timer: Timer
+var active_section := "parts"
+var section_drafts: Dictionary = {}
+var section_dirty := false
+var sections_enabled := false
 var request_node: HTTPRequest
 var job: Dictionary = {}
 var jobs: Array = []
@@ -87,16 +101,6 @@ func _ready() -> void:
 	ask_button.custom_minimum_size.y = 54
 	ask_button.pressed.connect(ask)
 	add_child(ask_button)
-	var archive := Button.new()
-	archive.text = "Archive conversation & start new"
-	archive.pressed.connect(func():
-		if busy or not pending_state.is_empty() or not notes_timer.is_stopped():
-			flush_state()
-			set_status("Wait for saving to finish, then archive.")
-			return
-		if job.has("id"): send("archive", "/jobs/" + job["id"] + "/archive")
-	)
-	add_child(archive)
 	status = label(self, "Connecting to your local workspace…", 13)
 	conversation = rich(self, 160)
 	conversation.text = "Ask in your own words. I’ll keep the useful details with this conversation."
@@ -151,38 +155,68 @@ func _ready() -> void:
 	saved_view.add_theme_constant_override("separation", 14)
 	saved_view.visible = false
 	add_child(saved_view)
-	label(saved_view, "Pick up a conversation, with its notes and saved references.")
-	job_list = ItemList.new()
-	job_list.custom_minimum_size.y = 240
-	job_list.item_activated.connect(func(index: int): open_job(jobs[index]["id"]))
-	saved_view.add_child(job_list)
-	var open := Button.new()
-	open.text = "Continue selected conversation"
-	open.custom_minimum_size.y = 46
-	open.pressed.connect(func():
-		var selected := job_list.get_selected_items()
-		if not selected.is_empty(): open_job(jobs[selected[0]]["id"])
+	var order_actions := HFlowContainer.new()
+	order_actions.add_theme_constant_override("h_separation", 8)
+	saved_view.add_child(order_actions)
+	var change := Button.new()
+	change.text = "Find / switch order"
+	change.custom_minimum_size.y = 44
+	change.pressed.connect(func():
+		order_picker.visible = not order_picker.visible
+		if order_picker.visible: refresh_jobs()
 	)
-	saved_view.add_child(open)
+	order_actions.add_child(change)
 	var fresh := Button.new()
-	fresh.text = "New conversation"
-	fresh.custom_minimum_size.y = 46
-	fresh.pressed.connect(new_job)
-	saved_view.add_child(fresh)
-	label(saved_view, "Conversation notes — saved automatically", 18)
+	fresh.text = "New work order"
+	fresh.custom_minimum_size.y = 44
+	fresh.pressed.connect(func():
+		new_order_row.visible = not new_order_row.visible
+		if new_order_row.visible: order_number.grab_focus()
+	)
+	order_actions.add_child(fresh)
+	new_order_row = HBoxContainer.new()
+	new_order_row.visible = false
+	saved_view.add_child(new_order_row)
+	order_number = LineEdit.new()
+	order_number.placeholder_text = "New order number (optional)"
+	order_number.max_length = 80
+	order_number.custom_minimum_size.y = 44
+	order_number.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	new_order_row.add_child(order_number)
+	var create := Button.new()
+	create.text = "Create"
+	create.custom_minimum_size.y = 44
+	create.pressed.connect(func(): create_order())
+	new_order_row.add_child(create)
+	order_picker = VBoxContainer.new()
+	order_picker.add_theme_constant_override("separation", 8)
+	saved_view.add_child(order_picker)
+	order_search = LineEdit.new()
+	order_search.placeholder_text = "Find by order number or machine"
+	order_search.custom_minimum_size.y = 44
+	order_search.text_changed.connect(func(_value: String): render_jobs())
+	order_picker.add_child(order_search)
+	job_list = ItemList.new()
+	job_list.custom_minimum_size.y = 170
+	job_list.fixed_icon_size = Vector2i(30, 34)
+	job_list.item_selected.connect(func(index: int): open_job(displayed_jobs[index]["id"]))
+	order_picker.add_child(job_list)
 	notes = TextEdit.new()
 	notes.placeholder_text = "Observations, measurements and things already checked"
 	notes.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	notes.custom_minimum_size.y = 180
 	saved_view.add_child(notes)
 	saved_status = label(saved_view, "Notes save automatically when the backend is connected.")
+	saved_status.visible = false
 	notes_timer = Timer.new()
 	notes_timer.one_shot = true
 	notes_timer.wait_time = 0.8
-	notes_timer.timeout.connect(func(): save_state({"notes":notes.text}))
+	notes_timer.timeout.connect(func(): save_state(collect_notes()))
 	add_child(notes_timer)
 	notes.text_changed.connect(func():
-		if not applying: notes_timer.start()
+		if not applying:
+			section_dirty = true
+			notes_timer.start()
 	)
 	request_node = HTTPRequest.new()
 	request_node.timeout = 90.0
@@ -192,6 +226,7 @@ func _ready() -> void:
 	send("startup", "/jobs?include_archived=false", {}, HTTPClient.METHOD_GET)
 
 func set_status(value: String) -> void:
+	status_changed.emit(value)
 	status.text = value
 	if saved_status != null: saved_status.text = value
 
@@ -199,6 +234,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 	if busy: return
 	operation = kind
 	busy = true
+	if kind in ["open", "create"]: lock_editors(true)
 	request_node.timeout = 20.0 if kind == "question" else 5.0 if kind in ["startup", "list", "open", "state", "create", "archive"] else 45.0
 	ask_button.disabled = true
 	if kind == "question": ask_button.text = "Finding useful information…"
@@ -208,6 +244,7 @@ func send(kind: String, path: String, body: Dictionary = {}, method: int = HTTPC
 			in_flight_state.merge(pending_state, true)
 			pending_state = in_flight_state.duplicate(true)
 		busy = false
+		lock_editors(false)
 		ask_button.disabled = false
 		ask_button.text = "Ask GopherTech"
 		set_status("Backend unavailable. Your question is kept; it has not been saved. Start run_backend.sh and retry.")
@@ -235,20 +272,27 @@ func refresh_jobs() -> void:
 	if not busy: send("list", "/jobs", {}, HTTPClient.METHOD_GET)
 
 func open_job(id: String) -> void:
+	before_switch.emit()
+	pending_creation.clear()
 	if busy or not pending_state.is_empty() or not notes_timer.is_stopped():
+		if not notes_timer.is_stopped() and not applying: pending_state.merge(collect_notes(), true)
 		notes_timer.stop()
-		if not applying: pending_state["notes"] = notes.text
 		pending_open = id
 		flush_state()
 		return
 	send("open", "/jobs/" + id, {}, HTTPClient.METHOD_GET)
 
 func new_job() -> void:
+	before_switch.emit()
 	if busy or not pending_state.is_empty() or not notes_timer.is_stopped():
 		set_status("Let the current job finish saving before starting another.")
 		flush_state()
 		return
+	if job.has("id"): drafts[job["id"]] = question.text
 	job = {}
+	section_drafts.clear()
+	section_dirty = false
+	active_section = "parts"
 	source_records = []
 	pending_reference = ""
 	pending_open = ""
@@ -297,6 +341,10 @@ func drain() -> void:
 	if busy: return
 	if not pending_state.is_empty():
 		flush_state()
+	elif not pending_creation.is_empty():
+		var body := pending_creation.duplicate()
+		pending_creation.clear()
+		start_order(body)
 	elif not pending_open.is_empty():
 		var id := pending_open
 		pending_open = ""
@@ -307,11 +355,20 @@ func drain() -> void:
 		set_status("Reading and saving the reference…")
 		send("reference", "/jobs/" + job["id"] + "/reference", {"url":url})
 
-func apply_job(value: Dictionary) -> void:
+func apply_job(value: Dictionary) -> bool:
 	if not notes_timer.is_stopped():
 		notes_timer.stop()
-		pending_state["notes"] = notes.text
-	if job.get("id", "") != value.get("id", ""):
+		pending_state.merge(collect_notes(), true)
+	var switching: bool = job.get("id", "") != value.get("id", "")
+	if switching and job.has("id") and not pending_state.is_empty():
+		# An arriving open response must never merge old-order edits into its data.
+		pending_open = value.get("id", "")
+		set_status("Saving the current order before switching…")
+		call_deferred("drain")
+		return false
+	if switching:
+		if job.has("id"): drafts[job["id"]] = question.text
+		question.text = drafts.get(value.get("id", ""), "") if operation != "question" else question.text
 		document = {}
 		document_panel.visible = false
 		live_browser.reset()
@@ -319,11 +376,19 @@ func apply_job(value: Dictionary) -> void:
 	job = value
 	for name in pending_state: job[name] = pending_state[name]
 	applying = true
-	notes.text = job.get("notes", "")
+	section_drafts = job.get("section_drafts", {}).duplicate(true)
+	if not section_drafts.has("parts"):
+		section_drafts["parts"] = {"task":"", "notes":job.get("notes", "")}
+	notes.text = section_drafts.get(active_section, {}).get("notes", "") if sections_enabled else job.get("notes", "")
 	applying = false
 	source_records = job.get("sources", [])
 	render_conversation()
+	if switching or operation in ["open", "create"]:
+		order_number.text = ""
+		new_order_row.visible = false
+		order_picker.visible = false
 	job_loaded.emit(job)
+	return true
 
 func render_conversation() -> void:
 	var transcript := ""
@@ -418,6 +483,7 @@ func fit_pdf_page() -> void:
 
 func on_response(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	busy = false
+	lock_editors(false)
 	ask_button.disabled = false
 	ask_button.text = "Ask GopherTech"
 	var parser := JSON.new()
@@ -433,6 +499,12 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 			set_status("Restart run_backend.sh to load saved-job support. Your question is kept here.")
 		save_notice.emit("Changes are not confirmed saved. Reconnect the backend and retry.")
 		return
+	if sections_enabled and operation in ["question", "open", "create", "state"] and not data.get("section_drafts") is Dictionary:
+		if operation == "state":
+			in_flight_state.merge(pending_state, true)
+			pending_state = in_flight_state.duplicate(true)
+		set_status("Restart the backend to enable section saving. Your unsaved entries are kept here; saving is not confirmed.")
+		return
 	if operation in ["question", "open", "create", "state"] and (not data.get("id") is String or not data.get("messages") is Array):
 		if operation == "state":
 			in_flight_state.merge(pending_state, true)
@@ -442,8 +514,8 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 	if operation in ["startup", "list"]:
 		jobs = data.get("jobs", [])
 		job_list.clear()
-		for entry in jobs: job_list.add_item(("[Archived] " if entry.get("archived_at") != null else "") + entry["title"] + "  •  " + entry["updated_at"].substr(0, 10))
-		set_status("Ready · Ask a question. Reference mode; automatic web answers are not available.")
+		render_jobs()
+		set_status("Ready · Local work orders. Reference mode; connected AI is not enabled yet.")
 		if operation == "startup":
 			question.grab_focus()
 	elif operation == "archive":
@@ -463,11 +535,11 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		if not data.get("job") is Dictionary or not data.get("document") is Dictionary or not data["document"].get("text") is String:
 			set_status("Incomplete reference reply. Previous content is kept.")
 			return
-		apply_job(data["job"])
+		if not apply_job(data["job"]): return
 		show_document(data["document"])
 		set_status("Opened saved reference copy; it has not been refreshed. Check model, region and revision." if data.get("cached", false) else "Reference read and saved with this job. Check model, serial range and region.")
 	else:
-		apply_job(data)
+		if not apply_job(data): return
 		set_status("Saved · " + str(job.get("title", "Workshop job")) + " · Source research.")
 		if operation == "question":
 			if question.text.strip_edges() == submitted_question: question.text = ""
@@ -478,5 +550,90 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		if operation == "state":
 			in_flight_state.clear()
 			save_notice.emit("Notes and parts saved with the current job.")
-		if operation == "create": create_key = ""
+		if operation == "create":
+			create_key = ""
+			creation_body = {}
+			order_number.text = ""
+
 	call_deferred("drain")
+
+func render_jobs() -> void:
+	job_list.clear()
+	displayed_jobs.clear()
+	var query := order_search.text.strip_edges().to_lower()
+	for entry in jobs:
+		var description: String = str(entry.get("machine_description", "")).strip_edges()
+		var title: String = entry.get("title", "")
+		if description.is_empty(): description = title if title not in ["Work order", "Workshop job", "Workshop notes / parts"] else "Machine details not entered"
+		var caption: String = order_label(entry) + " · " + description.left(110)
+		var searchable: String = caption + " " + str(entry.get("work_order_number", "")) + " " + description + " " + title
+		if not query.is_empty() and not query in searchable.to_lower(): continue
+		displayed_jobs.append(entry)
+		job_list.add_item(caption + "  ·  " + entry["updated_at"].substr(0, 10), load("res://assets/gophertech-logo.png"))
+	for index in range(job_list.item_count): job_list.set_item_tooltip(index, job_list.get_item_text(index))
+	job_list.add_theme_constant_override("v_separation", 18)
+
+func create_order(machine_description: String = "") -> void:
+	if busy and operation == "create": return
+	before_switch.emit()
+	if not notes_timer.is_stopped():
+		notes_timer.stop()
+		pending_state.merge(collect_notes(), true)
+	var body := {"title":"Work order", "machine_description":machine_description.strip_edges()}
+	if not order_number.text.strip_edges().is_empty(): body["work_order_number"] = order_number.text.strip_edges()
+	pending_open = ""
+	if busy or not pending_state.is_empty():
+		pending_creation = body
+		flush_state()
+		set_status("Saving the current work order before opening the new one…")
+		return
+	start_order(body)
+
+func start_order(body: Dictionary) -> void:
+	if creation_body != body:
+		create_key = key()
+		creation_body = body.duplicate()
+	if create_key.is_empty(): create_key = key()
+	var payload := body.duplicate()
+	payload["request_key"] = create_key
+	set_status("Creating work order…")
+	send("create", "/jobs", payload)
+
+func lock_editors(locked: bool) -> void:
+	notes.editable = not locked
+	question.editable = not locked
+	if has_meta("machine_input"): get_meta("machine_input").editable = not locked
+
+func order_label(record: Dictionary) -> String:
+	var number: String = record.get("work_order_number", "Work order")
+	var id: String = record.get("id", "")
+	return "WO-" + id.left(8).to_upper() if number == "WO-" + id and not id.is_empty() else number
+
+func collect_notes() -> Dictionary:
+	if not sections_enabled: return {"notes":notes.text}
+	var section: Dictionary = section_drafts.get(active_section, {"task":"", "notes":""}).duplicate()
+	section["notes"] = notes.text
+	section_drafts[active_section] = section
+	section_dirty = false
+	var payload := {"section_drafts":section_drafts.duplicate(true)}
+	# Preserve the pre-section notes API as the Parts notes for old clients.
+	if section_drafts.has("parts"): payload["notes"] = section_drafts["parts"].get("notes", "")
+	return payload
+
+func set_section_task(value: String) -> void:
+	if applying or not sections_enabled: return
+	var section: Dictionary = section_drafts.get(active_section, {"task":"", "notes":""}).duplicate()
+	section["task"] = value
+	section_drafts[active_section] = section
+	section_dirty = true
+	notes_timer.start()
+
+func switch_section(key: String) -> void:
+	if key not in ["parts", "diagnose", "repair", "fabricate"] or key == active_section: return
+	if key != active_section and (section_dirty or not notes_timer.is_stopped()):
+		notes_timer.stop()
+		save_state(collect_notes())
+	active_section = key
+	applying = true
+	notes.text = section_drafts.get(key, {}).get("notes", "")
+	applying = false

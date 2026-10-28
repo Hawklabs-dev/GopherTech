@@ -18,9 +18,9 @@ func run() -> void:
 	work.request_node.cancel_request()
 	work.busy = false
 	work.ask_button.disabled = false
-	check(shop.active_page == "home", "opens directly to question workflow")
+	check(shop.active_page == "home", "opens directly to quick search")
 	check(work.question is TextEdit and work.ask_button.text == "Ask GopherTech", "one obvious input and ask action")
-	check(shop.menu_button.get_popup().item_count == 3, "history and tools live in a compact menu")
+	check(shop.nav_grid.get_child_count() == 4, "four direct touch navigation buttons")
 	work.apply_job({"id":"ui-fixture", "notes":"", "parts":[], "sources":[{"title":"Original UI fixture source","url":"https://engines.honda.com/fixture","read":false}], "messages":[{"id":1,"role":"assistant","content":"Check the identification plate first.\n\nExtra technical explanation.\n\nDo not bypass safety interlocks.\n\nWhat model is it?"}]})
 	check(not "Technical details" in work.conversation.text, "routine technical links removed")
 	check("Do not bypass" in work.conversation.text, "safety text remains visible")
@@ -35,13 +35,15 @@ func run() -> void:
 	work.operation = "question"
 	work.submitted_question = "Original submitted question"
 	work.question.text = "A new draft typed while waiting"
-	var reply := {"id":"ui-fixture", "title":"Fixture", "notes":"", "parts":[], "sources":[], "messages":[{"id":3,"role":"assistant","content":sourced}]}
+	var reply := {"id":"ui-fixture", "section_drafts":{}, "title":"Fixture", "notes":"", "parts":[], "sources":[], "messages":[{"id":3,"role":"assistant","content":sourced}]}
 	work.on_response(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify(reply).to_utf8_buffer())
 	check(work.question.text == "A new draft typed while waiting", "incoming answer preserves a newer draft")
 	await process_frame
 	await process_frame
 	await create_timer(0.3).timeout
 	check(shop.page_scroll.scroll_vertical >= 0, "answer scrolling completes without errors")
+	shop.show_page("home")
+	await process_frame
 	work.show_document({"url":"https://engines.honda.com/fixture.pdf", "format":"pdf", "text":"Fixture page one\fFixture page two", "links":[]})
 	check("Next PDF page" in work.document_reader.text, "PDF text retains visible page boundaries")
 	check(work.document_reader.scroll_vertical == 0, "new document starts at the beginning")
@@ -52,8 +54,8 @@ func run() -> void:
 	work.fit_pdf_page()
 	check(absf(work.pdf_image.custom_minimum_size.y - work.pdf_image.size.x * 1.5) < 1.0, "PDF height follows its aspect ratio rather than a fixed desktop height")
 	for key in shop.navigation:
-		shop.menu_button.get_popup().id_pressed.emit(shop.navigation.keys().find(key))
-		check(shop.active_page == key, "menu opens " + key)
+		shop.nav_grid.get_child(shop.navigation.keys().find(key)).pressed.emit()
+		check(shop.active_page == key, "touch button opens " + key)
 	for choice in shop.TOOL_CHOICES:
 		shop.show_page(choice[0])
 		check(shop.pages[choice[0]].is_visible_in_tree(), "preserved secondary tool: " + choice[0])
@@ -63,11 +65,11 @@ func run() -> void:
 	await process_frame
 	check(shop.size.x <= 390, "portrait layout uses actual phone-sized width")
 	check(work.question.size.x <= 390, "question input fits portrait width")
-	check(work.ask_button.size.y >= 44 and shop.menu_button.size.y >= 44, "main touch targets remain usable")
+	check(work.ask_button.size.y >= 44 and shop.nav_grid.get_child(0).size.y >= 44, "main touch targets remain usable")
 	root.size = Vector2i(360, 800)
 	await process_frame
 	await process_frame
-	check(work.question.size.x <= 360 and shop.menu_button.get_global_rect().end.x <= 360, "compact header and input fit a narrow portrait screen")
-	print("Milestone 1 interface: ", "PASS" if failures == 0 else "FAIL", " (", failures, " failures)")
+	check(work.question.size.x <= 360 and shop.nav_grid.get_global_rect().end.x <= 360, "compact header and input fit a narrow portrait screen")
+	print("Work order interface: ", "PASS" if failures == 0 else "FAIL", " (", failures, " failures)")
 	shop.queue_free()
 	quit(0 if failures == 0 else 1)

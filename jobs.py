@@ -40,6 +40,16 @@ def initialize_jobs(connection):
         connection.execute("ALTER TABLE workshop_messages ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]'")
     if 'archived_at' not in {row[1] for row in connection.execute('PRAGMA table_info(workshop_jobs)')}:
         connection.execute('ALTER TABLE workshop_jobs ADD COLUMN archived_at TEXT')
+    columns = {row[1] for row in connection.execute('PRAGMA table_info(workshop_jobs)')}
+    if 'work_order_number' not in columns:
+        connection.execute('ALTER TABLE workshop_jobs ADD COLUMN work_order_number TEXT COLLATE NOCASE')
+    if 'machine_description' not in columns:
+        connection.execute("ALTER TABLE workshop_jobs ADD COLUMN machine_description TEXT NOT NULL DEFAULT ''")
+    if 'section_drafts' not in columns:
+        connection.execute("ALTER TABLE workshop_jobs ADD COLUMN section_drafts TEXT NOT NULL DEFAULT '{}'")
+    for row in connection.execute('SELECT id FROM workshop_jobs WHERE work_order_number IS NULL').fetchall():
+        connection.execute('UPDATE workshop_jobs SET work_order_number=? WHERE id=?', ('WO-' + row[0], row[0]))
+    connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS workshop_order_number ON workshop_jobs(work_order_number COLLATE NOCASE)')
     connection.execute('CREATE INDEX IF NOT EXISTS workshop_messages_job ON workshop_messages(job_id, id)')
 
 
@@ -57,6 +67,13 @@ def now():
 class JobCreate(BaseModel):
     title: str = Field(default='Workshop job', min_length=1, max_length=160)
     request_key: UUID
+    work_order_number: str | None = Field(default=None, min_length=1, max_length=80)
+    machine_description: str = Field(default='', max_length=300)
+
+    @field_validator('work_order_number', 'machine_description', mode='before')
+    @classmethod
+    def trim_identity(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class Question(BaseModel):
@@ -70,9 +87,23 @@ class Question(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+class SectionDraft(BaseModel):
+    task: str = Field(default='', max_length=300)
+    notes: str = Field(default='', max_length=20000)
+
+
 class JobState(BaseModel):
     notes: str | None = Field(default=None, max_length=20000)
     parts: list[str] | None = Field(default=None, max_length=100)
+    machine_description: str | None = Field(default=None, max_length=300)
+    section_drafts: dict[str, SectionDraft] | None = None
+
+    @field_validator('section_drafts')
+    @classmethod
+    def known_sections(cls, value):
+        if value is not None and set(value) - {'parts', 'diagnose', 'repair', 'fabricate'}:
+            raise ValueError('Unknown work area section.')
+        return value
 
     @field_validator('parts')
     @classmethod
@@ -90,6 +121,7 @@ def get_job(c, job_id):
     job.pop('creation_key', None)
     job['context'] = json.loads(job['context'])
     job['parts'] = json.loads(job['parts'])
+    job['section_drafts'] = json.loads(job['section_drafts'])
     job['messages'] = [dict(item) for item in c.execute('SELECT id, role, content, created_at, evidence FROM workshop_messages WHERE job_id=? ORDER BY id', (str(job_id),))]
     for message in job['messages']:
         message['evidence'] = json.loads(message['evidence'])
@@ -101,17 +133,22 @@ def get_job(c, job_id):
     return job
 
 
-def insert_job(c, title, creation_key=None):
+def insert_job(c, title, creation_key=None, work_order_number=None, machine_description=""):
     job_id, timestamp = str(uuid4()), now()
-    c.execute('INSERT INTO workshop_jobs(id,title,created_at,updated_at,creation_key) VALUES(?,?,?,?,?)',
-              (job_id, title[:160], timestamp, timestamp, creation_key))
+    number = work_order_number or 'WO-' + job_id[:8].upper()
+    while c.execute('SELECT 1 FROM workshop_jobs WHERE work_order_number=? COLLATE NOCASE', (number,)).fetchone():
+        if work_order_number:
+            raise HTTPException(409, 'That work order number is already in use. Open the existing order or choose another number.')
+        number = 'WO-' + str(uuid4())[:12].upper()
+    c.execute('INSERT INTO workshop_jobs(id,title,created_at,updated_at,creation_key,work_order_number,machine_description) VALUES(?,?,?,?,?,?,?)',
+              (job_id, title[:160], timestamp, timestamp, creation_key, number, machine_description))
     return job_id
 
 
 @router.get('')
 def list_jobs(include_archived: bool = True):
     with closing(connect()) as c:
-        rows = c.execute('SELECT id,title,created_at,updated_at,archived_at FROM workshop_jobs WHERE (? OR archived_at IS NULL) ORDER BY updated_at DESC,id', (include_archived,)).fetchall()
+        rows = c.execute('SELECT id,title,work_order_number,machine_description,created_at,updated_at,archived_at FROM workshop_jobs WHERE (? OR archived_at IS NULL) ORDER BY updated_at DESC,id', (include_archived,)).fetchall()
     return dict(jobs=[dict(row) for row in rows], mode=MODE)
 
 
@@ -120,7 +157,13 @@ def create_job(item: JobCreate):
     with closing(connect()) as c, c:
         c.execute('BEGIN IMMEDIATE')
         row = c.execute('SELECT id FROM workshop_jobs WHERE creation_key=?', (str(item.request_key),)).fetchone()
-        return get_job(c, row['id'] if row else insert_job(c, item.title, str(item.request_key)))
+        if row:
+            existing = get_job(c, row['id'])
+            if (existing['title'] != item.title or existing['machine_description'] != item.machine_description
+                    or (item.work_order_number is not None and existing['work_order_number'].casefold() != item.work_order_number.casefold())):
+                raise HTTPException(409, 'This creation request was already used with different work order details.')
+            return existing
+        return get_job(c, insert_job(c, item.title, str(item.request_key), item.work_order_number, item.machine_description))
 
 
 @router.get('/{job_id}')
@@ -142,9 +185,21 @@ def archive_job(job_id: UUID):
 def save_state(job_id: UUID, item: JobState):
     with closing(connect()) as c, c:
         c.execute('BEGIN IMMEDIATE')
-        get_job(c, job_id)
-        if item.notes is not None:
+        previous = get_job(c, job_id)
+        if item.machine_description is not None:
+            c.execute('UPDATE workshop_jobs SET machine_description=? WHERE id=?', (item.machine_description.strip(), str(job_id)))
+        if item.section_drafts is not None:
+            c.execute('UPDATE workshop_jobs SET section_drafts=? WHERE id=?',
+                      (json.dumps({key: value.model_dump() for key, value in item.section_drafts.items()}), str(job_id)))
+            if 'parts' in item.section_drafts:
+                c.execute('UPDATE workshop_jobs SET notes=? WHERE id=?', (item.section_drafts['parts'].notes, str(job_id)))
+        if item.notes is not None and (item.section_drafts is None or 'parts' not in item.section_drafts):
             c.execute('UPDATE workshop_jobs SET notes=? WHERE id=?', (item.notes, str(job_id)))
+            # Existing clients can continue updating the pre-section notes field.
+            if item.section_drafts is None and 'parts' in previous['section_drafts']:
+                sections = previous['section_drafts']
+                sections['parts']['notes'] = item.notes
+                c.execute('UPDATE workshop_jobs SET section_drafts=? WHERE id=?', (json.dumps(sections), str(job_id)))
         if item.parts is not None:
             c.execute('UPDATE workshop_jobs SET parts=? WHERE id=?', (json.dumps(item.parts), str(job_id)))
         c.execute('UPDATE workshop_jobs SET updated_at=? WHERE id=?', (now(), str(job_id)))

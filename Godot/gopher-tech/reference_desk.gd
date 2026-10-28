@@ -114,23 +114,7 @@ func _ready() -> void:
 	page_image.custom_minimum_size.y = 780
 	page_image.visible = false
 	add_child(page_image)
-	label("SHOP QUESTION PAD", 21)
-	ai_status = label("AI is paused: no paid API setup or calls. Use this pad to keep your questions and observations together. No AI answer is generated.", 15)
-	question_notes = TextEdit.new()
-	question_notes.placeholder_text = "What do you want to ask? What have you checked? Record the document and page you are working from."
-	question_notes.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	question_notes.custom_minimum_size.y = 180
-	add_child(question_notes)
-	var ask := Button.new()
-	ask.text = "Ask AI — paused"
-	ask.disabled = true
-	ask.custom_minimum_size.y = 46
-	add_child(ask)
-	button("Copy my questions and source", func():
-		DisplayServer.clipboard_set(question_notes.text + "\n\nReference: " + document_url)
-		message.text = "Your questions and source copied. No AI request was made."
-	)
-	label("Questions are saved as current-job notes when the backend is connected. Read references are saved with that job.", 14)
+	ai_status = label("AI is paused. Use Job Details for the shared notes and research workspace.", 14)
 	request_node = HTTPRequest.new()
 	request_node.timeout = 30.0
 	request_node.body_size_limit = 16 * 1024 * 1024
@@ -230,7 +214,7 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		return
 	if operation == "status":
 		message.text = "Reference reader connected. No paid APIs are enabled."
-		ai_status.text = data.get("ai_reason", "AI is paused.") + " Use the question pad below; no AI answer is generated."
+		ai_status.text = data.get("ai_reason", "AI is paused.") + " No AI answer is generated."
 	elif operation == "sources":
 		if not data.get("sources") is Array:
 			message.text = "The source directory could not be read."
@@ -277,3 +261,39 @@ func on_response(result: int, code: int, _headers: PackedStringArray, body: Pack
 		page_caption.text = "PDF page %d • %s" % [int(data.get("page", 1)), document_url]
 		message.text = "PDF page loaded below. Diagrams are original document images, not AI-generated instructions."
 		focus_requested.emit(page_image)
+
+func capture_workspace() -> Dictionary:
+	return {"query":query.text, "url_input":url_input.text, "document_text":document_text,
+		"document_url":document_url, "document_format":document_format, "reader":reader.text,
+		"find":find_text.text, "reader_scroll":reader.scroll_vertical,
+		"sources":source_records.duplicate(true), "links":link_records.duplicate(true),
+		"provenance":provenance.text, "message":message.text, "notice":notice.text,
+		"page":page_number.value, "image":page_image.texture, "image_visible":page_image.visible,
+		"page_caption":page_caption.text}
+
+func restore_workspace(snapshot: Dictionary) -> void:
+	# Never let a previous machine's outstanding response attach to the new job.
+	request_node.cancel_request()
+	set_busy(false)
+	search_pending = false
+	query.text = snapshot.get("query", "")
+	url_input.text = snapshot.get("url_input", "")
+	document_text = snapshot.get("document_text", "")
+	document_url = snapshot.get("document_url", "")
+	document_format = snapshot.get("document_format", "")
+	find_text.text = snapshot.get("find", "")
+	reader.text = snapshot.get("reader", "")
+	reader.scroll_vertical = snapshot.get("reader_scroll", 0)
+	source_records = snapshot.get("sources", []).duplicate(true)
+	link_records = snapshot.get("links", []).duplicate(true)
+	source_list.clear()
+	links.clear()
+	for entry in source_records: source_list.add_item(entry.get("title", entry.get("url", "Reference")))
+	for entry in link_records: links.add_item(entry.get("title", entry.get("url", "Document")))
+	provenance.text = snapshot.get("provenance", "No document loaded for this work order.")
+	message.text = snapshot.get("message", "Find references for this work order.")
+	notice.text = snapshot.get("notice", "Check model, serial range and applicability.")
+	page_number.value = snapshot.get("page", 1)
+	page_image.texture = snapshot.get("image")
+	page_image.visible = snapshot.get("image_visible", false)
+	page_caption.text = snapshot.get("page_caption", "No PDF page loaded.")

@@ -22,7 +22,7 @@ func run() -> void:
 	root.add_child(shop)
 	var work = shop.job_workspace
 	await idle(work)
-	check(shop.navigation.size() == 3, "only three main navigation choices")
+	check(shop.navigation.size() == 4, "four main navigation choices")
 	if OS.get_environment("GOPHERTECH_REOPEN") == "1":
 		check(work.job.is_empty() and work.question.text.is_empty(), "restart opens a clean question workspace")
 		check(not work.jobs.is_empty(), "saved conversations remain available")
@@ -76,7 +76,8 @@ func run() -> void:
 		work.save_state({"notes":"Measured mounting holes in mm", "parts":["Qty 2: bracket blanks"]})
 		await idle(work)
 		shop.show_page("parts")
-		shop.research_forms["parts"]["inputs"]["task"].text = "Fixture gasket"
+		shop.work_form["task"].text = "Fixture gasket"
+		shop.work_form["task"].text_changed.emit("Fixture gasket")
 		shop.add_part()
 		await idle(work)
 		check(work.job.get("parts", []).size() == 2, "parts tool saves into the active job")

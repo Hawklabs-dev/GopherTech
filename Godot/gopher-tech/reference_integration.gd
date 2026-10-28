@@ -46,6 +46,8 @@ func run() -> void:
 	desk.view_pdf_page()
 	await idle(desk)
 	check(desk.page_image.visible and desk.page_image.texture != null, "PDF layout image reaches Godot")
+	await idle(shop.job_workspace)
+	check(shop.active_page == "tools" and desk.reader.is_visible_in_tree(), "saving a reference does not redirect away from the reference reader")
 	desk.question_notes.text = "Keep this question while changing pages"
 	shop.show_page("home")
 	shop.show_page("references")

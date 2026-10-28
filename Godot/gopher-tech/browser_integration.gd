@@ -19,6 +19,7 @@ func run() -> void:
 	OS.set_environment("GOPHERTECH_API_URL", "http://127.0.0.1:1")
 	var shop = load("res://shop_dashboard.tscn").instantiate()
 	root.add_child(shop)
+	shop.show_page("home")
 	var work = shop.job_workspace
 	if OS.get_environment("GOPHERTECH_BROWSER_SEARCH_TEST") == "1":
 		await search_link_test(work, shop)
@@ -66,6 +67,12 @@ func run() -> void:
 		await create_timer(.05).timeout
 	await create_timer(.5).timeout
 	check(clicked, "clicks reach interactive webpage")
+	# Re-establish the pointer target after the asynchronous webpage click.
+	# The native cursor can move while the test waits for Chromium IPC.
+	point = panel.browser.global_position + Vector2(90, 50)
+	motion.position = point
+	root.push_input(motion, true)
+	await process_frame
 	var outer_scroll: int = shop.page_scroll.scroll_vertical
 	var wheel := InputEventMouseButton.new()
 	wheel.position = point

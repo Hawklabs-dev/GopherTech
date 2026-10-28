@@ -14,25 +14,50 @@ func run() -> void:
 	var dashboard = load("res://shop_dashboard.tscn").instantiate()
 	root.add_child(dashboard)
 	await process_frame
-	check(dashboard.active_page == "home", "home is the entry point")
-	check(dashboard.pages.size() == 13, "three main pages preserve all ten tools")
-	check(dashboard.navigation.size() == 3, "only three main navigation choices")
+	check(dashboard.active_page == "home", "quick search is the entry point")
+	check(dashboard.pages.size() == 7, "one work area replaces order/details/photo pages")
+	check(dashboard.navigation.size() == 4, "four main navigation choices")
 	check(dashboard.job_workspace.question != null, "main screen has a large question input")
-	check(dashboard.pages["home"].visible, "home starts visible")
+	check(dashboard.pages["home"].visible, "quick search starts visible")
 	check(not dashboard.pages["equipment"].visible, "equipment registration is optional")
 	for key in dashboard.navigation:
-		dashboard.menu_button.get_popup().id_pressed.emit(dashboard.navigation.keys().find(key))
+		dashboard.nav_grid.get_child(dashboard.navigation.keys().find(key)).pressed.emit()
 		check(dashboard.active_page == key, "navigation opens " + key)
 		var visible_pages := 0
 		for page in dashboard.pages.values():
 			visible_pages += int(page.is_visible_in_tree())
-		check(visible_pages == (2 if key == "tools" else 1), "only selected main page and tool are visible")
-	for key in ["parts", "diagnose", "repair", "fabricate"]:
+		check(visible_pages == (2 if key in ["tools", "parts_list"] else 1), "only selected main page and tool are visible")
+	var section_tasks := {"parts":"Carburetor & gasket #123", "diagnose":"No spark", "repair":"Replace belt", "fabricate":"Bracket dimensions"}
+	for key in section_tasks:
+		dashboard.show_page(key)
+		check(dashboard.work_form["task"].text.is_empty() and dashboard.job_workspace.notes.text.is_empty(), "unused section starts empty")
 		check(not dashboard.prepare_research(key), "blank request blocked")
-		dashboard.research_forms[key]["inputs"]["task"].text = "Carburetor & gasket #123"
+		dashboard.work_form["task"].text = section_tasks[key]
+		dashboard.work_form["task"].text_changed.emit(section_tasks[key])
+		dashboard.job_workspace.notes.text = "Measurements for " + key
+		dashboard.job_workspace.notes.text_changed.emit()
 		check(dashboard.prepare_research(key), "standalone request needs no model/profile")
-		check("Carburetor & gasket #123" in dashboard.research_forms[key]["output"].text, "brief retains request")
-		check("Carburetor & gasket #123" in dashboard.search_query(key, dashboard.form_values(key)), "query retains task details")
+		check(section_tasks[key] in dashboard.work_form["output"].text, "brief retains this section's request")
+		check(section_tasks[key] in dashboard.search_query(key, dashboard.form_values(key)), "query retains this section's task")
+	check(dashboard.reference_desk.question_notes == dashboard.job_workspace.notes, "reference reader shares the one durable notes editor")
+	var task_editor = dashboard.work_form["task"]
+	var notes_editor = dashboard.job_workspace.notes
+	for mode in dashboard.RESEARCH_MODES:
+		dashboard.show_page(mode)
+		check(dashboard.active_page == "saved", "all research modes open the same work area")
+		check(dashboard.work_form["task"] == task_editor and dashboard.job_workspace.notes == notes_editor, "mode changes reuse the same input controls")
+		check(task_editor.text == section_tasks[mode], "mode restores its own task")
+		check(notes_editor.text == "Measurements for " + mode, "mode restores its own notes")
+	var titles := []
+	for mode in dashboard.RESEARCH_MODES:
+		dashboard.set_research_kind(mode)
+		titles.append(dashboard.work_form["panel_title"].text)
+		check(dashboard.research_panel.get_parent().visible, "research selection displays content beneath the mode buttons")
+		check(dashboard.work_form["add_button"].visible == (mode == "parts"), "parts-only action changes with the selected panel")
+	check(titles.size() == 4 and titles.count("Parts research") == 1 and titles.count("Troubleshooting") == 1 and titles.count("Repair plan") == 1 and titles.count("Fabrication plan") == 1, "four visibly distinct research panels")
+	dashboard.show_page("photos")
+	check(dashboard.active_page == "saved" and dashboard.photo_workspace.is_visible_in_tree() and not dashboard.research_panel.get_parent().visible, "photos populate within the same work area")
+	dashboard.show_page("parts")
 	var desk = dashboard.reference_desk
 	desk.request_node.cancel_request()
 	desk.set_busy(false)
@@ -57,7 +82,7 @@ func run() -> void:
 	check(dashboard.parts.size() == 1, "identical parts are not added twice")
 	dashboard.show_page("home")
 	dashboard.show_page("parts")
-	check(dashboard.research_forms["parts"]["inputs"]["task"].text == "Carburetor & gasket #123", "navigation retains work")
+	check(dashboard.work_form["task"].text == "Carburetor & gasket #123", "navigation retains work")
 	dashboard.conversion_input.text = "1"
 	dashboard.conversion_kind.select(0)
 	dashboard.convert_units()

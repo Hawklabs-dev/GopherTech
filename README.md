@@ -2,10 +2,34 @@
 
 Local equipment workspace built with FastAPI, SQLite, and a Godot dashboard.
 
+## Current work order checkpoint — October 28, 2026
+
+[Morning handoff and afternoon starting point](docs/HANDOFF-2026-10-28-AM.md).
+
+The app opens directly to **Go For Gopher** for quick questions/search. The
+active work order number and machine summary stay beside the logo. Compact
+touch buttons open **Go For Gopher / Work Area / Parts / Tools**. **Work Area**
+combines order selection, machine details, research, saved notes and photos in
+one scrollable screen. Find/switch orders inline; each Parts, Troubleshoot,
+Repair, Fabricate or Photos button populates the panel beneath it. There is one
+machine-details editor bound to the active order, with no separate new-order
+machine draft. Parts, Troubleshoot, Repair and Fabricate each auto-save their
+own task and notes; unused sections open blank and saved entries survive restart. Finance screens are no longer in this interface.
+
+**Photos** can choose, preview and keep original JPEG/PNG/WebP files locally per
+work order. Camera capture, OCR and connected AI remain unimplemented. Photos
+are stored in Godot's app data directory, separately from SQLite; back up both.
+This is a desktop checkpoint, not an Android-ready package.
+
+See [the current delivery and testing notes](docs/TABLET-TRIAL-2026-10-28.md) for
+storage, draft limitations, Android findings and remaining trial work. The older
+milestone descriptions below document earlier checkpoints and are superseded
+where they describe the menu, blank-question startup or photo attachment.
+
 For normal desktop use, run `./run_dashboard.sh`. It starts its own local backend
 and closes that backend when the app exits. F5 in the Godot editor still requires
-`./run_backend.sh` separately. Every app start opens a blank question workspace;
-continue older work explicitly through Menu → Saved Jobs.
+`./run_backend.sh` separately. Every app start opens quick search;
+use Work Area to choose an existing order or create one explicitly.
 
 Interactive manufacturer lookup waits at most eight seconds before saving an
 explicit timeout reply. Outstanding lookups are bounded; late results do not
@@ -59,7 +83,7 @@ passes with both the normal Vulkan renderer and OpenGL compatibility renderer.
 The 84 Python tests, prototype restart/recovery integration, reference/PDF
 integration and Milestone 1 interface smoke check also pass.
 
-## Shop Buddy — Milestone 1 review
+## Earlier checkpoint: Shop Buddy — Milestone 1 review
 
 The owner acceptance gate is Milestone 1 only. The current interface has a compact
 branded header, one question box, one Ask action and a small **Menu** for history

@@ -1,5 +1,10 @@
 # Shop Buddy revamp — owner acceptance gates
 
+**Historical gate:** The owner approved the work order/tablet increment on
+October 28, 2026, superseding the interface-only hold in this document. See
+`TABLET-TRIAL-2026-10-28.md` for the current scope. Paid provider activation still
+requires a budget/credential decision.
+
 GopherTech: Figure it out. Figure it right. Get it fixed.
 
 The owner has authorized **Milestone 1 (Interface) only**. Stop after reporting

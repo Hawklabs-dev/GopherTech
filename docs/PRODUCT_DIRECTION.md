@@ -19,7 +19,23 @@ This document records future design requirements. It does not imply that these
 features are already implemented. Coordinate website messaging with the actual
 application capabilities as both evolve.
 
-## Owner decisions
+## Current owner-approved tablet direction — October 28, 2026
+
+Work order numbers organize a standalone tablet helper with Wi-Fi and connected
+AI as the target. Open directly to Go For Gopher quick search. Keep the active
+order number and machine summary beside the logo. Work Area combines order selection, machine details, parts research,
+troubleshooting, repair, fabrication, notes and photos in one scrollable screen.
+Four top-level buttons open Go For Gopher, Work Area, Parts and Tools. Research
+sections share the layout and machine identity, while each section auto-saves
+its own task and notes; unused sections load blank fields. No job status workflow. Keep the four direct Gopher buttons and the
+existing Tools capabilities; remove finance from tablet navigation. Parent-PC
+administration, inventory, POS and ordering are later work. The owner approved
+implementation of the work order foundation, navigation and photo attachment
+increment, superseding the earlier interface-only hold below. No paid AI budget
+has been approved or activated. See `TABLET-TRIAL-2026-10-28.md` for actual
+implementation and test boundaries.
+
+## Earlier owner decisions
 
 - The Shop Buddy mission is the current direction: ASK → FIND → ANALYZE →
   ANSWER → REMEMBER. Milestone 1 is interface-only; stop for owner testing and
